@@ -1,27 +1,24 @@
-import java.io.*;
 import javax.swing.*;
+import java.awt.*;
 
 public class Main {
-    static void main() {
-        // Creating instance of JFrame
-        JFrame frame = new JFrame();
+    public Main() {
+        JFrame frame = new JFrame("Modular Swing App");
+        CardLayout cl = new CardLayout();
+        JPanel container = new JPanel(cl);
 
-        // Creating instance of JButton
-        JButton button = new JButton(" GFG WebSite Click");
+        // We pass the 'container' and 'cl' so the panels can switch screens
+        container.add(new MenuPanel(container, cl), "Menu");
+        container.add(new SettingsPanel(container, cl), "Settings");
 
-        // x axis, y axis, width, height
-        button.setBounds(150, 200, 220, 50);
-
-        // adding button in JFrame
-        frame.add(button);
-
-        // 400 width and 500 height
-        frame.setSize(500, 600);
-
-        // using no layout managers
-        frame.setLayout(null);
-
-        // making the frame visible
+        frame.add(container);
+        frame.setSize(400, 300);
+        frame.setLocationRelativeTo(null);
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setVisible(true);
+    }
+
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(Main::new);
     }
 }
