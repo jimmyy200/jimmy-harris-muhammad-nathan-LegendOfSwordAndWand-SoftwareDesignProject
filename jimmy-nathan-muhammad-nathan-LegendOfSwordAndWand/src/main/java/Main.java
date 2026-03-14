@@ -1,9 +1,13 @@
+import Panels.LoginPanel;
+import Panels.MenuPanel;
+import Panels.SettingsPanel;
+
 import javax.swing.*;
 import java.awt.*;
 
 public class Main {
     public Main() {
-        JFrame frame = new JFrame("Secure App");
+        JFrame frame = new JFrame("Legend Of Sword and Wand");
         CardLayout cl = new CardLayout();
         JPanel container = new JPanel(cl);
 
