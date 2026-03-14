@@ -1,5 +1,6 @@
 import Panels.LoginPanel;
 import Panels.MenuPanel;
+import Panels.RegisterPanel;
 import Panels.SettingsPanel;
 
 import javax.swing.*;
@@ -12,6 +13,7 @@ public class Main {
         JPanel container = new JPanel(cl);
 
         // Add screens to the container
+        container.add(new RegisterPanel(container, cl), "Register");
         container.add(new LoginPanel(container, cl), "Login");
         container.add(new MenuPanel(container, cl), "Menu");
         container.add(new SettingsPanel(container, cl), "Settings");

@@ -12,16 +12,17 @@ public class LoginPanel extends JPanel {
     public LoginPanel(JPanel container, CardLayout cl) {
         setLayout(new GridBagLayout());
 
-        JPanel loginBox = new JPanel(new GridLayout(3, 2, 5, 5));
+        JPanel loginBox = new JPanel(new GridLayout(4, 2, 5, 5));
         JTextField userField = new JTextField(10);
         JPasswordField passField = new JPasswordField(10);
         JButton loginBtn = new JButton("Login");
+        JButton registerBtn = new JButton("Go Register");
 
         loginBox.add(new JLabel("Username:"));
         loginBox.add(userField);
         loginBox.add(new JLabel("Password:"));
         loginBox.add(passField);
-        loginBox.add(new JLabel(""));
+        loginBox.add(registerBtn);
         loginBox.add(loginBtn);
 
         loginBtn.addActionListener(e -> {
@@ -42,26 +43,20 @@ public class LoginPanel extends JPanel {
             }
         });
 
+        registerBtn.addActionListener(e -> cl.show(container, "Register"));
         add(loginBox);
     }
 
     private boolean validateLogin(String username, String password) {
         String query = "SELECT * FROM users WHERE username = ? AND password = ?";
-
         try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
              PreparedStatement stmt = conn.prepareStatement(query)) {
-
             stmt.setString(1, username);
             stmt.setString(2, password);
-
             ResultSet rs = stmt.executeQuery();
             return rs.next();
-
         } catch (SQLException ex) {
-            JOptionPane.showMessageDialog(this,
-                    "Database error: " + ex.getMessage(),
-                    "Connection Error",
-                    JOptionPane.ERROR_MESSAGE);
+            JOptionPane.showMessageDialog(this, "Database error: " + ex.getMessage(), "Connection Error", JOptionPane.ERROR_MESSAGE);
             return false;
         }
     }
