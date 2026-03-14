@@ -15,7 +15,7 @@ public class ClassSelectPanel extends JPanel {
             "High speed and power, but reckless — attacks cost HP."
     };
 
-    public ClassSelectPanel(JPanel container, CardLayout cl, String[] currentUser) {
+    public ClassSelectPanel(JPanel container, CardLayout cl, String[] currentUser, GamePanel gamePanel) {
         setLayout(new BorderLayout(10, 10));
 
         JLabel title = new JLabel("Choose Your Class", SwingConstants.CENTER);
@@ -38,8 +38,8 @@ public class ClassSelectPanel extends JPanel {
                     DatabaseManager.getInstance().saveClass(currentUser[0], className);
                     DatabaseManager.getInstance().saveGame(currentUser[0]);
                     GameEngine.getInstance().startGame();
-                    // TODO: cl.show(container, "Game"); — wire to your game screen
-                    JOptionPane.showMessageDialog(this, "Starting new game as " + className + "!", "Let's Go", JOptionPane.INFORMATION_MESSAGE);
+                    gamePanel.startNewGame(className, currentUser[0]);
+                    cl.show(container, "Game");
                 }
             });
             classBox.add(btn);

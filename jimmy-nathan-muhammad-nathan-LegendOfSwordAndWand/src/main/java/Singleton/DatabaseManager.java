@@ -1,5 +1,4 @@
 package Singleton;
-
 import java.sql.*;
 
 public class DatabaseManager {
@@ -103,5 +102,41 @@ public class DatabaseManager {
             return null;
         }
     }
-}
 
+    public boolean updateSave(String username, int level, double hp, int attack,
+                              int defense, int mana, int gold, int room) {
+        String query = "UPDATE saves SET level=?, hp=?, power=?, defense=?, speed=?, gold=?, room=? WHERE username=?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+            stmt.setInt(1, level);
+            stmt.setDouble(2, hp);
+            stmt.setInt(3, attack);
+            stmt.setDouble(4, defense);
+            stmt.setInt(5, mana);
+            stmt.setInt(6, gold);
+            stmt.setString(7, String.valueOf(room));
+            stmt.setString(8, username);
+            stmt.executeUpdate();
+            return true;
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+            return false;
+        }
+    }
+
+    public boolean saveScore(String username, int score) {
+        String query = "INSERT INTO hall_of_fame (username, score) VALUES (?, ?) " +
+                "ON DUPLICATE KEY UPDATE score = GREATEST(score, ?)";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+            stmt.setString(1, username);
+            stmt.setInt(2, score);
+            stmt.setInt(3, score);
+            stmt.executeUpdate();
+            return true;
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+            return false;
+        }
+    }
+}

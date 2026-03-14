@@ -166,4 +166,10 @@ public abstract class Hero {
         return String.format("[%s | %s | Lv%d | HP: %.0f/%.0f | Mana: %d/%d | ATK: %d | DEF: %d]",
                 name, getClassName(), level, hp, maxHp, mana, maxMana, attack, defense);
     }
+    // Additional setters needed by GamePanel
+    public void changeAttack(int attack)   { this.attack = attack; }
+    public void changeDefense(int defense) { this.defense = defense; }
+    public void changeHp(double hp)        { this.hp = Math.min(maxHp, hp); }
+    public void changeMana(int mana)       { this.mana = Math.min(maxMana, mana); }
+    public void restoreMana(int amount)    { this.mana = Math.min(maxMana, mana + amount); }
 }
