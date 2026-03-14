@@ -1,22 +1,19 @@
 package Panels;
 
+import Singleton.DatabaseManager;
+
 import javax.swing.*;
 import java.awt.*;
-import java.sql.*;
 
 public class LoginPanel extends JPanel {
-    private static final String DB_URL  = "jdbc:mysql://localhost:3306/localDB";
-    private static final String DB_USER = "root";
-    private static final String DB_PASS = "pass";
-
-    public LoginPanel(JPanel container, CardLayout cl) {
+    public LoginPanel(JPanel container, CardLayout cl, String[] currentUser) {
         setLayout(new GridBagLayout());
 
         JPanel loginBox = new JPanel(new GridLayout(4, 2, 5, 5));
         JTextField userField = new JTextField(10);
         JPasswordField passField = new JPasswordField(10);
-        JButton loginBtn = new JButton("Login");
-        JButton registerBtn = new JButton("Go Register");
+        JButton loginBtn    = new JButton("Login");
+        JButton registerBtn = new JButton("Register");
 
         loginBox.add(new JLabel("Username:"));
         loginBox.add(userField);
@@ -34,7 +31,8 @@ public class LoginPanel extends JPanel {
                 return;
             }
 
-            if (validateLogin(username, password)) {
+            if (DatabaseManager.getInstance().validateLogin(username, password)) {
+                currentUser[0] = username;
                 cl.show(container, "Menu");
                 passField.setText("");
                 userField.setText("");
@@ -45,19 +43,5 @@ public class LoginPanel extends JPanel {
 
         registerBtn.addActionListener(e -> cl.show(container, "Register"));
         add(loginBox);
-    }
-
-    private boolean validateLogin(String username, String password) {
-        String query = "SELECT * FROM users WHERE username = ? AND password = ?";
-        try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS);
-             PreparedStatement stmt = conn.prepareStatement(query)) {
-            stmt.setString(1, username);
-            stmt.setString(2, password);
-            ResultSet rs = stmt.executeQuery();
-            return rs.next();
-        } catch (SQLException ex) {
-            JOptionPane.showMessageDialog(this, "Database error: " + ex.getMessage(), "Connection Error", JOptionPane.ERROR_MESSAGE);
-            return false;
-        }
     }
 }
