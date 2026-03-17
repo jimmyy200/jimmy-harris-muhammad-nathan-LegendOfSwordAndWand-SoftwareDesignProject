@@ -1,5 +1,6 @@
 package Panels;
 
+import Factory.HeroFactory;
 import Hero.*;
 import Singleton.DatabaseManager;
 
@@ -116,12 +117,6 @@ public class ClassSelectPanel extends JPanel {
     }
 
     private Hero createHero(String heroClass, String heroName) {
-        switch (heroClass.toUpperCase()) {
-            case "WARRIOR": return new Warrior(heroName);
-            case "MAGE":    return new Mage(heroName);
-            case "ORDER":   return new Order(heroName);
-            case "CHAOS":   return new Chaos(heroName);
-            default:        return new Warrior(heroName);
-        }
+        return HeroFactory.getFactory(heroClass).createHero(heroName);
     }
 }

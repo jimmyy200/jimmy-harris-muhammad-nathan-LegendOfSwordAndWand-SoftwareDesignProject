@@ -1,8 +1,10 @@
 package Panels;
 
+import Factory.HeroFactory;
 import Hero.*;
 import Mob.*;
 import Singleton.DatabaseManager;
+import State.*;
 
 import javax.swing.*;
 import java.awt.*;
@@ -32,6 +34,9 @@ public class GamePanel extends JPanel {
     private Queue<Hero>    turnQueue;      // heroes still to choose their action
     private Hero           activeHero;    // hero currently choosing
     private List<Runnable> pendingActions; // queued hero actions to resolve together
+
+    // ── State ─────────────────────────────────────────────────
+    private RoomContext roomContext;
 
     // ── UI ────────────────────────────────────────────────────
     private JLabel    lblRoom, lblGold, lblHeroStats, lblTurn;
@@ -87,8 +92,8 @@ public class GamePanel extends JPanel {
         btnDefend   = new JButton("Defend");
         btnWait     = new JButton("Wait");
         btnCast     = new JButton("Cast Spell");
-        btnNextRoom = new JButton("Next Room");
-        btnUseItems = new JButton("Use Items");
+        btnNextRoom = new JButton("Next Room ▶");
+        btnUseItems = new JButton("Use Items 🎒");
         actionPanel.add(btnAttack);
         actionPanel.add(btnDefend);
         actionPanel.add(btnWait);
@@ -104,6 +109,10 @@ public class GamePanel extends JPanel {
         btnCast.addActionListener(e     -> queueCast());
         btnNextRoom.addActionListener(e -> enterNextRoom());
         btnUseItems.addActionListener(e -> useItems());
+
+        // Initialise state machine
+        roomContext = new RoomContext(btnAttack, btnDefend, btnWait, btnCast, btnNextRoom, btnUseItems);
+        roomContext.setState(new InnState()); // start disabled until game begins
     }
 
     // ── Init / Load ───────────────────────────────────────────
@@ -151,13 +160,7 @@ public class GamePanel extends JPanel {
     }
 
     private Hero createHero(String heroClass, String heroName) {
-        switch (heroClass.toUpperCase()) {
-            case "WARRIOR": return new Warrior(heroName);
-            case "MAGE":    return new Mage(heroName);
-            case "ORDER":   return new Order(heroName);
-            case "CHAOS":   return new Chaos(heroName);
-            default:        return new Warrior(heroName);
-        }
+        return HeroFactory.getFactory(heroClass).createHero(heroName);
     }
 
     // ── Room Logic ────────────────────────────────────────────
@@ -199,6 +202,7 @@ public class GamePanel extends JPanel {
 
     private void startBattle() {
         inBattle = true;
+        roomContext.setState(new BattleState());
         startNewRound();
     }
 
@@ -215,7 +219,7 @@ public class GamePanel extends JPanel {
         turnQueue      = new LinkedList<>();
         pendingActions = new ArrayList<>();
 
-        refreshStats();
+        refreshMobPanel();
 
         for (Hero h : party) {
             if (h.isAlive() && !h.isStunned()) turnQueue.add(h);
@@ -237,7 +241,7 @@ public class GamePanel extends JPanel {
         }
         activeHero = turnQueue.poll();
         lblTurn.setText("▶ " + activeHero.getName() + "'s turn (" + activeHero.getClassName() + ")");
-        setActionButtons(true, false);
+        roomContext.setState(new BattleState());
         refreshStats();
     }
 
@@ -329,7 +333,7 @@ public class GamePanel extends JPanel {
      * Then check for battle end.
      */
     private void resolveRound() {
-        setActionButtons(false, false);
+        roomContext.setState(new ResolvingState());
         lblTurn.setText("Resolving round...");
 
         log("=== Heroes act ===");
@@ -450,7 +454,7 @@ public class GamePanel extends JPanel {
 
         refreshStats();
         refreshMobPanel();
-        setActionButtons(false, true);
+        roomContext.setState(new VictoryState());
         saveProgress();
         return true;
     }
@@ -466,7 +470,7 @@ public class GamePanel extends JPanel {
         log("--- Defeated! Lost " + lostGold + " gold. ---");
         for (Hero h : party) h.fullRestore();
         refreshStats();
-        setActionButtons(false, true);
+        roomContext.setState(new DefeatedState());
         JOptionPane.showMessageDialog(this, "Defeated! Lost " + lostGold + " gold.", "Defeated", JOptionPane.WARNING_MESSAGE);
     }
 
@@ -479,13 +483,7 @@ public class GamePanel extends JPanel {
         refreshStats();
         if (currentRoom <= 10 && party.size() < 5) offerRecruitment();
         showInnShop();
-        // Re-enable Next Room and Use Items after shop closes
-        btnAttack.setEnabled(false);
-        btnDefend.setEnabled(false);
-        btnWait.setEnabled(false);
-        btnCast.setEnabled(false);
-        btnNextRoom.setEnabled(true);
-        btnUseItems.setEnabled(true);
+        roomContext.setState(new InnState());
     }
 
     private static final String[] HERO_CLASSES = {"Warrior", "Mage", "Order", "Chaos"};
@@ -638,7 +636,7 @@ public class GamePanel extends JPanel {
         int totalLevels = party.stream().mapToInt(Hero::getLevel).sum();
         int score = totalLevels * 100 + gold * 10;
         log("=== Campaign Complete! Final Score: " + score + " ===");
-        setActionButtons(false, false);
+        roomContext.setState(new ResolvingState());
         DatabaseManager.getInstance().saveScore(currentUser[0], score);
         JOptionPane.showMessageDialog(this,
                 "Campaign complete!\nFinal Score: " + score + "\nGold: " + gold
@@ -694,12 +692,5 @@ public class GamePanel extends JPanel {
         mobPanel.repaint();
     }
 
-    private void setActionButtons(boolean battleMode, boolean showNext) {
-        btnAttack.setEnabled(battleMode);
-        btnDefend.setEnabled(battleMode);
-        btnWait.setEnabled(battleMode);
-        btnCast.setEnabled(battleMode);
-        btnNextRoom.setEnabled(showNext);
-        btnUseItems.setEnabled(!battleMode); // only usable outside battle
-    }
+    // button state is now managed by RoomContext / State pattern
 }
