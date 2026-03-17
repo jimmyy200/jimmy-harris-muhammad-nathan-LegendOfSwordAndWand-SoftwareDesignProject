@@ -29,9 +29,9 @@ public class GamePanel extends JPanel {
     private Map<String, Integer> inventory = new LinkedHashMap<>();
 
     // ── Turn tracking ─────────────────────────────────────────
-    private Queue<Hero>  turnQueue;   // heroes still to choose their action
-    private Hero activeHero;  // hero currently choosing private
-    List<Runnable> pendingActions; // queued hero actions to resolve together
+    private Queue<Hero>    turnQueue;      // heroes still to choose their action
+    private Hero           activeHero;    // hero currently choosing
+    private List<Runnable> pendingActions; // queued hero actions to resolve together
 
     // ── UI ────────────────────────────────────────────────────
     private JLabel    lblRoom, lblGold, lblHeroStats, lblTurn;
@@ -120,6 +120,19 @@ public class GamePanel extends JPanel {
         enterNextRoom();
     }
 
+    /** Load a full saved party */
+    public void loadGame(List<Hero> savedParty, int savedGold, int savedRoom) {
+        party       = new ArrayList<>(savedParty);
+        hero        = party.get(0);
+        gold        = savedGold;
+        currentRoom = savedRoom;
+        logArea.setText("");
+        log("=== Save Loaded! Party: " + party.stream()
+                .map(h -> h.getName() + " (" + h.getClassName() + ")")
+                .collect(Collectors.joining(", ")) + " ===");
+        enterNextRoom();
+    }
+
     public void loadGame(String heroClass, String heroName, int level, double hp,
                          int attack, int defense, int mana, int goldAmt, int room) {
         hero = createHero(heroClass, heroName);
@@ -202,7 +215,7 @@ public class GamePanel extends JPanel {
         turnQueue      = new LinkedList<>();
         pendingActions = new ArrayList<>();
 
-        refreshMobPanel();
+        refreshStats();
 
         for (Hero h : party) {
             if (h.isAlive() && !h.isStunned()) turnQueue.add(h);
@@ -637,8 +650,7 @@ public class GamePanel extends JPanel {
     // ── Helpers ───────────────────────────────────────────────
 
     private void saveProgress() {
-        DatabaseManager.getInstance().updateSave(currentUser[0], hero.getLevel(),
-                hero.getHp(), hero.getAttack(), hero.getDefense(), hero.getMana(), gold, currentRoom);
+        DatabaseManager.getInstance().saveParty(currentUser[0], party, gold, currentRoom);
     }
 
     private Mob pickLivingMob() {

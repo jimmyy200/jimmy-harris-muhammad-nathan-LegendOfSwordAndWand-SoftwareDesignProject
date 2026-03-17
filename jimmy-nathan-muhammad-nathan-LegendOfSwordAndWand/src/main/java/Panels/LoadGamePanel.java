@@ -1,10 +1,13 @@
 package Panels;
 
+import Hero.*;
 import Singleton.DatabaseManager;
 
 import javax.swing.*;
 import java.awt.*;
 import java.sql.*;
+import java.util.ArrayList;
+import java.util.List;
 
 public class LoadGamePanel extends JPanel {
     public LoadGamePanel(JPanel container, CardLayout cl, String[] currentUser, GamePanel gamePanel) {
@@ -15,21 +18,15 @@ public class LoadGamePanel extends JPanel {
         add(title, BorderLayout.NORTH);
 
         JPanel statsPanel = new JPanel(new GridLayout(0, 2, 8, 8));
-        statsPanel.setBorder(BorderFactory.createTitledBorder("Saved Game"));
+        statsPanel.setBorder(BorderFactory.createTitledBorder("Saved Party"));
 
-        JLabel valClass = new JLabel("-"); JLabel valLevel = new JLabel("-");
-        JLabel valHp    = new JLabel("-"); JLabel valAtk   = new JLabel("-");
-        JLabel valDef   = new JLabel("-"); JLabel valMana  = new JLabel("-");
-        JLabel valGold  = new JLabel("-"); JLabel valRoom  = new JLabel("-");
+        JLabel valParty = new JLabel("-");
+        JLabel valGold  = new JLabel("-");
+        JLabel valRoom  = new JLabel("-");
 
-        statsPanel.add(new JLabel("Class:"));   statsPanel.add(valClass);
-        statsPanel.add(new JLabel("Level:"));   statsPanel.add(valLevel);
-        statsPanel.add(new JLabel("HP:"));      statsPanel.add(valHp);
-        statsPanel.add(new JLabel("Attack:"));  statsPanel.add(valAtk);
-        statsPanel.add(new JLabel("Defense:")); statsPanel.add(valDef);
-        statsPanel.add(new JLabel("Mana:"));    statsPanel.add(valMana);
-        statsPanel.add(new JLabel("Gold:"));    statsPanel.add(valGold);
-        statsPanel.add(new JLabel("Room:"));    statsPanel.add(valRoom);
+        statsPanel.add(new JLabel("Party:"));  statsPanel.add(valParty);
+        statsPanel.add(new JLabel("Gold:"));   statsPanel.add(valGold);
+        statsPanel.add(new JLabel("Room:"));   statsPanel.add(valRoom);
 
         JPanel centerWrapper = new JPanel(new FlowLayout());
         centerWrapper.add(statsPanel);
@@ -41,12 +38,9 @@ public class LoadGamePanel extends JPanel {
         noSaveLbl.setForeground(Color.RED);
         loadBtn.setEnabled(false);
 
-        // Hold save data for use when Load is clicked
-        int[] savedData = new int[4]; // level, attack, defense, mana, gold, room
-        double[] savedHp = new double[1];
-        int[] savedGold  = new int[1];
-        int[] savedRoom  = new int[1];
-        String[] savedClass = new String[1];
+        // Hold loaded party data
+        final List<Hero> loadedParty = new ArrayList<>();
+        final int[] savedMeta = new int[2]; // [gold, room]
 
         JPanel bottomPanel = new JPanel(new GridLayout(3, 1, 5, 5));
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(0, 40, 10, 40));
@@ -58,31 +52,60 @@ public class LoadGamePanel extends JPanel {
         addComponentListener(new java.awt.event.ComponentAdapter() {
             @Override
             public void componentShown(java.awt.event.ComponentEvent e) {
-                ResultSet rs = DatabaseManager.getInstance().loadGame(currentUser[0]);
-                try {
-                    if (rs != null && rs.next()) {
-                        savedClass[0] = rs.getString("class") != null ? rs.getString("class") : "Warrior";
-                        savedData[0]  = rs.getInt("level");
-                        savedHp[0]    = rs.getDouble("hp");
-                        savedData[1]  = rs.getInt("power");
-                        savedData[2]  = rs.getInt("defense");
-                        savedData[3]  = rs.getInt("speed"); // used as mana
-                        savedGold[0]  = rs.getInt("gold");
-                        savedRoom[0]  = Integer.parseInt(rs.getString("room").replaceAll("[^0-9]", "0"));
+                loadedParty.clear();
+                loadBtn.setEnabled(false);
+                noSaveLbl.setText("");
 
-                        valClass.setText(savedClass[0]);
-                        valLevel.setText(String.valueOf(savedData[0]));
-                        valHp.setText(String.valueOf(savedHp[0]));
-                        valAtk.setText(String.valueOf(savedData[1]));
-                        valDef.setText(String.valueOf(savedData[2]));
-                        valMana.setText(String.valueOf(savedData[3]));
-                        valGold.setText(String.valueOf(savedGold[0]));
-                        valRoom.setText(String.valueOf(savedRoom[0]));
-                        noSaveLbl.setText("");
-                        loadBtn.setEnabled(true);
+                // Load party members
+                ResultSet rs = DatabaseManager.getInstance().loadParty(currentUser[0]);
+                try {
+                    if (rs != null) {
+                        StringBuilder partySummary = new StringBuilder("<html>");
+                        while (rs.next()) {
+                            String heroName  = rs.getString("hero_name");
+                            String heroClass = rs.getString("hero_class");
+                            int    level     = rs.getInt("level");
+                            double hp        = rs.getDouble("hp");
+                            int    attack    = rs.getInt("attack");
+                            int    defense   = rs.getInt("defense");
+                            int    mana      = rs.getInt("mana");
+                            int    exp       = rs.getInt("experience");
+
+                            Hero hero = createHero(heroClass, heroName);
+                            hero.setLevel(level);
+                            hero.changeHp(hp);
+                            hero.changeAttack(attack);
+                            hero.changeDefense(defense);
+                            hero.changeMana(mana);
+                            hero.gainExperience(exp);
+                            loadedParty.add(hero);
+
+                            partySummary.append(heroName).append(" [").append(heroClass)
+                                    .append(" Lv").append(level).append("]<br>");
+                        }
+                        partySummary.append("</html>");
+
+                        if (!loadedParty.isEmpty()) {
+                            valParty.setText(partySummary.toString());
+                            loadBtn.setEnabled(true);
+                        } else {
+                            noSaveLbl.setText("No save file found.");
+                        }
                     } else {
                         noSaveLbl.setText("No save file found.");
-                        loadBtn.setEnabled(false);
+                    }
+                } catch (SQLException ex) {
+                    ex.printStackTrace();
+                }
+
+                // Load gold and room from saves table
+                ResultSet savesRs = DatabaseManager.getInstance().loadGame(currentUser[0]);
+                try {
+                    if (savesRs != null && savesRs.next()) {
+                        savedMeta[0] = savesRs.getInt("gold");
+                        savedMeta[1] = Integer.parseInt(savesRs.getString("room").replaceAll("[^0-9]", "0"));
+                        valGold.setText(String.valueOf(savedMeta[0]));
+                        valRoom.setText(String.valueOf(savedMeta[1]));
                     }
                 } catch (SQLException ex) {
                     ex.printStackTrace();
@@ -91,12 +114,21 @@ public class LoadGamePanel extends JPanel {
         });
 
         loadBtn.addActionListener(e -> {
-            gamePanel.loadGame(savedClass[0], currentUser[0],
-                    savedData[0], savedHp[0], savedData[1], savedData[2], savedData[3],
-                    savedGold[0], savedRoom[0]);
+            if (loadedParty.isEmpty()) return;
+            gamePanel.loadGame(loadedParty, savedMeta[0], savedMeta[1]);
             cl.show(container, "Game");
         });
 
         backBtn.addActionListener(e -> cl.show(container, "Menu"));
+    }
+
+    private Hero createHero(String heroClass, String heroName) {
+        switch (heroClass.toUpperCase()) {
+            case "WARRIOR": return new Warrior(heroName);
+            case "MAGE":    return new Mage(heroName);
+            case "ORDER":   return new Order(heroName);
+            case "CHAOS":   return new Chaos(heroName);
+            default:        return new Warrior(heroName);
+        }
     }
 }
