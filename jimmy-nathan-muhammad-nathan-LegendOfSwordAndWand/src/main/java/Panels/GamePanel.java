@@ -102,6 +102,7 @@ public class GamePanel extends JPanel {
         btnDefend.addActionListener(e   -> queueDefend());
         btnWait.addActionListener(e     -> queueWait());
         btnCast.addActionListener(e     -> queueCast());
+        btnNextRoom.addActionListener(e -> enterNextRoom());
         btnUseItems.addActionListener(e -> useItems());
     }
 
@@ -200,6 +201,8 @@ public class GamePanel extends JPanel {
     private void startNewRound() {
         turnQueue      = new LinkedList<>();
         pendingActions = new ArrayList<>();
+
+        refreshMobPanel();
 
         for (Hero h : party) {
             if (h.isAlive() && !h.isStunned()) turnQueue.add(h);
@@ -458,12 +461,18 @@ public class GamePanel extends JPanel {
 
     private void visitInn() {
         inBattle = false;
-        setActionButtons(false, true);
         for (Hero h : party) h.fullRestore();
         log("--- You found an Inn! All party members fully restored. ---");
         refreshStats();
         if (currentRoom <= 10 && party.size() < 5) offerRecruitment();
         showInnShop();
+        // Re-enable Next Room and Use Items after shop closes
+        btnAttack.setEnabled(false);
+        btnDefend.setEnabled(false);
+        btnWait.setEnabled(false);
+        btnCast.setEnabled(false);
+        btnNextRoom.setEnabled(true);
+        btnUseItems.setEnabled(true);
     }
 
     private static final String[] HERO_CLASSES = {"Warrior", "Mage", "Order", "Chaos"};
