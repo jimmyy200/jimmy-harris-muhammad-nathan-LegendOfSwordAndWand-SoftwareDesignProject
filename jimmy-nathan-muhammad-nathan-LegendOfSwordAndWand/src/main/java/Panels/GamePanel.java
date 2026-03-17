@@ -17,7 +17,7 @@ public class GamePanel extends JPanel {
 
     // ── Game State ────────────────────────────────────────────
     private Hero   hero;
-    private List<Hero> party; // full party including main hero, max 5
+    private List<Hero> party;
     private int    gold;
     private int    currentRoom;
     private int    baseEncounterChance = 60; // %
@@ -173,17 +173,17 @@ public class GamePanel extends JPanel {
     }
 
     private void spawnMobs() {
-        int numMobs = 1 + random.nextInt(3); // 1-3 mobs
-        int mobLevel = Math.max(1, hero.getLevel() + random.nextInt(3) - 1);
+        int numMobs  = 1 + random.nextInt(3); // 1-3 mobs
+        int mobLevel = Math.max(1, hero.getLevel() * 2 + random.nextInt(3) - 1);
 
         for (int i = 0; i < numMobs; i++) {
-            double hp    = 50 + mobLevel * 10;
-            double power = 3  + mobLevel * 2;
-            int xp       = 50 * mobLevel;
-            int g        = 75 * mobLevel;
+            double hp    = 50  + mobLevel * 10;
+            double power = 3   + mobLevel * 2;
+            int xp       = 50  * mobLevel;
+            int g        = 75  * mobLevel;
             currentMobs.add(new NormalMob(hp, power, xp, g, 0.75));
         }
-        log("--- " + numMobs + " enemy mob(s) appeared! ---");
+        log("--- " + numMobs + " enemy mob(s) (Lv" + mobLevel + ") appeared! ---");
     }
 
     private void startBattle() {
@@ -195,15 +195,40 @@ public class GamePanel extends JPanel {
     private void visitInn() {
         inBattle = false;
         setActionButtons(false, true);
-        // Full restore for all party members
         for (Hero h : party) h.fullRestore();
         log("--- You found an Inn! All party members fully restored. ---");
         refreshStats();
-        // Offer recruitment in first 10 rooms if party not full
-        if (currentRoom <= 10 && party.size() < 5) {
-            offerRecruitment();
-        }
+        if (currentRoom <= 10 && party.size() < 5) offerRecruitment();
         showInnShop();
+    }
+
+    // ── Recruitment ───────────────────────────────────────────
+
+    private static final String[] HERO_CLASSES = {"Warrior", "Mage", "Order", "Chaos"};
+
+    private void offerRecruitment() {
+        String recruitClass = HERO_CLASSES[random.nextInt(HERO_CLASSES.length)];
+        int recruitLevel    = 1 + random.nextInt(4);
+        int cost            = recruitLevel == 1 ? 0 : 200 * recruitLevel;
+        String heroName     = recruitClass + "-" + (party.size() + 1);
+
+        String msg = "<html>A wandering <b>" + recruitClass + "</b> (Lv" + recruitLevel + ") is looking for work!<br>"
+                + (cost == 0 ? "They will join for FREE!" : "Hiring cost: <b>" + cost + "g</b>") + "</html>";
+
+        int choice = JOptionPane.showConfirmDialog(this, msg, "Recruit Hero?", JOptionPane.YES_NO_OPTION);
+        if (choice != JOptionPane.YES_OPTION) return;
+
+        if (gold < cost) {
+            JOptionPane.showMessageDialog(this, "Not enough gold!", "Recruit", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+
+        gold -= cost;
+        Hero recruit = createHero(recruitClass, heroName);
+        for (int i = 1; i < recruitLevel; i++) recruit.gainExperience(recruit.expNeededForLevel(i + 1));
+        party.add(recruit);
+        log("--- " + heroName + " the " + recruitClass + " (Lv" + recruit.getLevel() + ") joined your party! ---");
+        refreshStats();
     }
 
     // ── Combat Actions ────────────────────────────────────────
@@ -344,15 +369,26 @@ public class GamePanel extends JPanel {
             int totalXp   = currentMobs.stream().mapToInt(Mob::getXpReward).sum();
             int totalGold = currentMobs.stream().mapToInt(Mob::getGoldReward).sum();
             gold += totalGold;
-            // XP split among living party members
+
+            // XP split among living party members per spec
             List<Hero> survivors = new ArrayList<>();
             for (Hero h : party) { if (h.isAlive()) survivors.add(h); }
             int xpEach = survivors.isEmpty() ? 0 : totalXp / survivors.size();
+
+            log("--- Victory! +" + totalXp + " XP (each survivor gets " + xpEach + "), +" + totalGold + " Gold ---");
+
             for (Hero h : survivors) {
-                boolean lvUp = h.gainExperience(xpEach);
-                if (lvUp) log(h.getName() + " levelled up to " + h.getLevel() + "!");
+                int before = h.getLevel();
+                h.gainExperience(xpEach);
+                int expToNext = h.expNeededForLevel(h.getLevel() + 1) - h.getExperience();
+                if (h.getLevel() > before) {
+                    log(h.getName() + " levelled up to Lv" + h.getLevel() + "!");
+                }
+                if (h.getLevel() < 20) {
+                    log(h.getName() + ": " + h.getExperience() + " XP | " + expToNext + " to next level");
+                }
             }
-            log("--- Victory! +" + totalXp + " XP (split), +" + totalGold + " Gold ---");
+
             refreshStats();
             refreshMobPanel();
             setActionButtons(false, true);
@@ -369,37 +405,6 @@ public class GamePanel extends JPanel {
         hero.fullRestore();
         refreshStats();
         JOptionPane.showMessageDialog(this, "You were defeated! Lost " + lostGold + " gold.", "Defeated", JOptionPane.WARNING_MESSAGE);
-    }
-
-    // ── Recruitment ───────────────────────────────────────────
-
-    private static final String[] HERO_CLASSES = {"Warrior", "Mage", "Order", "Chaos"};
-
-    private void offerRecruitment() {
-        // Generate a random hero available for hire
-        String recruitClass = HERO_CLASSES[random.nextInt(HERO_CLASSES.length)];
-        int recruitLevel    = 1 + random.nextInt(4); // level 1-4
-        int cost            = recruitLevel == 1 ? 0 : 200 * recruitLevel;
-        String heroName     = recruitClass + "-" + (party.size() + 1);
-
-        String msg = "<html>A wandering <b>" + recruitClass + "</b> (Lv" + recruitLevel + ") is looking for work!<br>"
-                + (cost == 0 ? "They will join for FREE!" : "Hiring cost: <b>" + cost + "g</b>") + "</html>";
-
-        int choice = JOptionPane.showConfirmDialog(this, msg, "Recruit Hero?", JOptionPane.YES_NO_OPTION);
-        if (choice != JOptionPane.YES_OPTION) return;
-
-        if (gold < cost) {
-            JOptionPane.showMessageDialog(this, "Not enough gold!", "Recruit", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        gold -= cost;
-        Hero recruit = createHero(recruitClass, heroName);
-        // Set recruit to their level by applying level ups
-        for (int i = 1; i < recruitLevel; i++) recruit.gainExperience(recruit.expNeededForLevel(i + 1));
-        party.add(recruit);
-        log("--- " + heroName + " the " + recruitClass + " (Lv" + recruit.getLevel() + ") joined your party! ---");
-        refreshStats();
     }
 
     // ── Inn ───────────────────────────────────────────────────

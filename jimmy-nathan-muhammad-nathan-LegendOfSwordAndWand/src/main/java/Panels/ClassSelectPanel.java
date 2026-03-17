@@ -1,7 +1,6 @@
 package Panels;
 
 import Singleton.DatabaseManager;
-import Singleton.GameEngine;
 
 import javax.swing.*;
 import java.awt.*;
@@ -37,7 +36,6 @@ public class ClassSelectPanel extends JPanel {
                 if (confirm == JOptionPane.YES_OPTION) {
                     DatabaseManager.getInstance().saveClass(currentUser[0], className);
                     DatabaseManager.getInstance().saveGame(currentUser[0]);
-                    GameEngine.getInstance().startGame();
                     gamePanel.startNewGame(className, currentUser[0]);
                     cl.show(container, "Game");
                 }

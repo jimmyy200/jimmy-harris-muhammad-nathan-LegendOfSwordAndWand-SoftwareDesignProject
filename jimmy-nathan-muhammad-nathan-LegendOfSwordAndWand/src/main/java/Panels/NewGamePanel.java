@@ -1,7 +1,6 @@
 package Panels;
 
 import Singleton.DatabaseManager;
-import Singleton.GameEngine;
 
 import javax.swing.*;
 import java.awt.*;
@@ -34,7 +33,6 @@ public class NewGamePanel extends JPanel {
                     "New Game", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
             if (choice == JOptionPane.YES_OPTION) {
                 if (DatabaseManager.getInstance().saveGame(currentUser[0])) {
-                    GameEngine.getInstance().startGame();
                     JOptionPane.showMessageDialog(this, "New game started!", "Success", JOptionPane.INFORMATION_MESSAGE);
                     cl.show(container, "Menu");
                 }

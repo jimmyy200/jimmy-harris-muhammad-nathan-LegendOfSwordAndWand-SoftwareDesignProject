@@ -1,7 +1,6 @@
 package Panels;
 
 import Singleton.DatabaseManager;
-import Singleton.GameEngine;
 
 import javax.swing.*;
 import java.awt.*;
@@ -92,7 +91,6 @@ public class LoadGamePanel extends JPanel {
         });
 
         loadBtn.addActionListener(e -> {
-            GameEngine.getInstance().startGame();
             gamePanel.loadGame(savedClass[0], currentUser[0],
                     savedData[0], savedHp[0], savedData[1], savedData[2], savedData[3],
                     savedGold[0], savedRoom[0]);
