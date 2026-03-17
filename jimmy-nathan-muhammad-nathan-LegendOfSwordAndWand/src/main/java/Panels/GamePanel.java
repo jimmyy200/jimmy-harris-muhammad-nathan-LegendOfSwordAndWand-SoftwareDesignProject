@@ -6,9 +6,9 @@ import Singleton.DatabaseManager;
 
 import javax.swing.*;
 import java.awt.*;
-import java.util.ArrayList;
+import java.util.*;
 import java.util.List;
-import java.util.Random;
+import java.util.stream.*;
 
 public class GamePanel extends JPanel {
 
@@ -16,23 +16,30 @@ public class GamePanel extends JPanel {
     private static final Random random = new Random();
 
     // ── Game State ────────────────────────────────────────────
-    private Hero   hero;
+    private Hero       hero;
     private List<Hero> party;
-    private int    gold;
-    private int    currentRoom;
-    private int    baseEncounterChance = 60; // %
-    private List<Mob> currentMobs;
-    private boolean inBattle;
-    private boolean waitingForPlayer; // player has chosen "Wait"
+    private int        gold;
+    private int        currentRoom;
+    private int        baseEncounterChance = 60;
+    private List<Mob>  currentMobs;
+    private boolean    inBattle;
 
-    // ── UI References ─────────────────────────────────────────
-    private JLabel  lblRoom, lblGold, lblHeroStats, lblStatus;
+    // ── Inventory ─────────────────────────────────────────────
+    // Maps item name -> quantity
+    private Map<String, Integer> inventory = new LinkedHashMap<>();
+
+    // ── Turn tracking ─────────────────────────────────────────
+    private Queue<Hero>  turnQueue;   // heroes still to choose their action
+    private Hero activeHero;  // hero currently choosing private
+    List<Runnable> pendingActions; // queued hero actions to resolve together
+
+    // ── UI ────────────────────────────────────────────────────
+    private JLabel    lblRoom, lblGold, lblHeroStats, lblTurn;
     private JTextArea logArea;
-    private JButton btnAttack, btnDefend, btnWait, btnCast, btnNextRoom;
-    private JPanel  mobPanel;
-    private JPanel  actionPanel;
-    private final String[] currentUser;
-    private final JPanel   container;
+    private JButton   btnAttack, btnDefend, btnWait, btnCast, btnNextRoom, btnUseItems;
+    private JPanel    mobPanel;
+    private final String[]   currentUser;
+    private final JPanel     container;
     private final CardLayout cl;
 
     public GamePanel(JPanel container, CardLayout cl, String[] currentUser) {
@@ -46,7 +53,6 @@ public class GamePanel extends JPanel {
     // ── Build UI ──────────────────────────────────────────────
 
     private void buildUI() {
-        // ── TOP: hero stats bar ──
         JPanel topPanel = new JPanel(new GridLayout(1, 3, 5, 0));
         topPanel.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
         lblHeroStats = new JLabel("", SwingConstants.LEFT);
@@ -57,9 +63,7 @@ public class GamePanel extends JPanel {
         topPanel.add(lblGold);
         add(topPanel, BorderLayout.NORTH);
 
-        // ── CENTER: mob display + log ──
         JPanel centerPanel = new JPanel(new BorderLayout(5, 5));
-
         mobPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 5));
         mobPanel.setBorder(BorderFactory.createTitledBorder("Enemies"));
         mobPanel.setPreferredSize(new Dimension(0, 100));
@@ -70,50 +74,48 @@ public class GamePanel extends JPanel {
         logArea.setLineWrap(true);
         logArea.setWrapStyleWord(true);
         centerPanel.add(new JScrollPane(logArea), BorderLayout.CENTER);
-
         add(centerPanel, BorderLayout.CENTER);
 
-        // ── BOTTOM: actions + status ──
         JPanel bottomPanel = new JPanel(new BorderLayout());
+        lblTurn = new JLabel(" ", SwingConstants.CENTER);
+        lblTurn.setFont(new Font("SansSerif", Font.BOLD, 13));
+        lblTurn.setForeground(new Color(0, 100, 0));
+        bottomPanel.add(lblTurn, BorderLayout.NORTH);
 
-        lblStatus = new JLabel(" ", SwingConstants.CENTER);
-        lblStatus.setForeground(Color.RED);
-        bottomPanel.add(lblStatus, BorderLayout.NORTH);
-
-        actionPanel = new JPanel(new FlowLayout());
+        JPanel actionPanel = new JPanel(new FlowLayout());
         btnAttack   = new JButton("Attack");
         btnDefend   = new JButton("Defend");
         btnWait     = new JButton("Wait");
         btnCast     = new JButton("Cast Spell");
-        btnNextRoom = new JButton("Next Room ▶");
-
+        btnNextRoom = new JButton("Next Room");
+        btnUseItems = new JButton("Use Items");
         actionPanel.add(btnAttack);
         actionPanel.add(btnDefend);
         actionPanel.add(btnWait);
         actionPanel.add(btnCast);
         actionPanel.add(btnNextRoom);
+        actionPanel.add(btnUseItems);
         bottomPanel.add(actionPanel, BorderLayout.CENTER);
-
         add(bottomPanel, BorderLayout.SOUTH);
 
-        // ── Wire buttons ──
-        btnAttack.addActionListener(e   -> playerAttack());
-        btnDefend.addActionListener(e   -> playerDefend());
-        btnWait.addActionListener(e     -> playerWait());
-        btnCast.addActionListener(e     -> playerCast());
-        btnNextRoom.addActionListener(e -> enterNextRoom());
+        btnAttack.addActionListener(e   -> queueAttack());
+        btnDefend.addActionListener(e   -> queueDefend());
+        btnWait.addActionListener(e     -> queueWait());
+        btnCast.addActionListener(e     -> queueCast());
+        btnUseItems.addActionListener(e -> useItems());
     }
 
     // ── Init / Load ───────────────────────────────────────────
 
-    /** Called from ClassSelectPanel / LoadGamePanel to start the game */
-    public void startNewGame(String heroClass, String heroName) {
-        hero        = createHero(heroClass, heroName);
-        party       = new ArrayList<>();
-        party.add(hero);
+    public void startNewGame(List<Hero> startingParty) {
+        party       = new ArrayList<>(startingParty);
+        hero        = party.get(0);
         gold        = 0;
         currentRoom = 0;
-        log("=== Game Started! You are a " + heroClass + " ===");
+        logArea.setText("");
+        log("=== Game Started! Party: " + party.stream()
+                .map(h -> h.getName() + " (" + h.getClassName() + ")")
+                .collect(Collectors.joining(", ")) + " ===");
         enterNextRoom();
     }
 
@@ -122,7 +124,6 @@ public class GamePanel extends JPanel {
         hero = createHero(heroClass, heroName);
         party = new ArrayList<>();
         party.add(hero);
-        // Restore saved state
         hero.setLevel(level);
         hero.changeHp(hp);
         hero.changeAttack(attack);
@@ -130,6 +131,7 @@ public class GamePanel extends JPanel {
         hero.changeMana(mana);
         this.gold        = goldAmt;
         this.currentRoom = room;
+        logArea.setText("");
         log("=== Save Loaded! Room " + room + " ===");
         enterNextRoom();
     }
@@ -148,17 +150,13 @@ public class GamePanel extends JPanel {
 
     private void enterNextRoom() {
         currentRoom++;
-
-        if (currentRoom > TOTAL_ROOMS) {
-            endCampaign();
-            return;
-        }
+        if (currentRoom > TOTAL_ROOMS) { endCampaign(); return; }
 
         currentMobs = new ArrayList<>();
         inBattle    = false;
 
-        // Encounter probability shifts 3% per 10 cumulative hero levels
-        int shift = (hero.getLevel() / 10) * 3;
+        int cumLevel = party.stream().mapToInt(Hero::getLevel).sum();
+        int shift    = (cumLevel / 10) * 3;
         int encounterChance = Math.min(90, baseEncounterChance + shift);
 
         lblRoom.setText("Room " + currentRoom + " / " + TOTAL_ROOMS);
@@ -173,160 +171,202 @@ public class GamePanel extends JPanel {
     }
 
     private void spawnMobs() {
-        int numMobs  = 1 + random.nextInt(3); // 1-3 mobs
+        int numMobs  = 1 + random.nextInt(3);
         int mobLevel = Math.max(1, hero.getLevel() * 2 + random.nextInt(3) - 1);
-
         for (int i = 0; i < numMobs; i++) {
-            double hp    = 50  + mobLevel * 10;
-            double power = 3   + mobLevel * 2;
-            int xp       = 50  * mobLevel;
-            int g        = 75  * mobLevel;
-            currentMobs.add(new NormalMob(hp, power, xp, g, 0.75));
+            double mobHp  = 50  + mobLevel * 10;
+            double power  = 3   + mobLevel * 2;
+            int xp        = 50  * mobLevel;
+            int g         = 75  * mobLevel;
+            currentMobs.add(new NormalMob(mobHp, power, xp, g, 0.75));
         }
         log("--- " + numMobs + " enemy mob(s) (Lv" + mobLevel + ") appeared! ---");
     }
 
     private void startBattle() {
         inBattle = true;
+        startNewRound();
+    }
+
+    // ── Round / Turn System ───────────────────────────────────
+
+    /**
+     * A round works like this:
+     * 1. Each living hero picks an action (queued, no damage applied yet)
+     * 2. Once all heroes have chosen, resolveRound() is called
+     * 3. Hero actions are applied first, then mob actions
+     * 4. Damage and effects are calculated and displayed
+     */
+    private void startNewRound() {
+        turnQueue      = new LinkedList<>();
+        pendingActions = new ArrayList<>();
+
+        for (Hero h : party) {
+            if (h.isAlive() && !h.isStunned()) turnQueue.add(h);
+            else if (h.isStunned()) {
+                h.setStunned(false);
+                log(h.getName() + " recovers from stun.");
+            }
+        }
+        log("--- New round. " + turnQueue.size() + " hero(es) to act. ---");
+        promptNextHero();
+    }
+
+    /** Prompt the next hero in the queue to choose an action */
+    private void promptNextHero() {
+        if (turnQueue.isEmpty()) {
+            // All heroes have chosen — resolve the round
+            resolveRound();
+            return;
+        }
+        activeHero = turnQueue.poll();
+        lblTurn.setText("▶ " + activeHero.getName() + "'s turn (" + activeHero.getClassName() + ")");
         setActionButtons(true, false);
-        refreshMobPanel();
-    }
-
-    private void visitInn() {
-        inBattle = false;
-        setActionButtons(false, true);
-        for (Hero h : party) h.fullRestore();
-        log("--- You found an Inn! All party members fully restored. ---");
         refreshStats();
-        if (currentRoom <= 10 && party.size() < 5) offerRecruitment();
-        showInnShop();
     }
 
-    // ── Recruitment ───────────────────────────────────────────
+    // ── Queue Actions (no damage yet) ─────────────────────────
 
-    private static final String[] HERO_CLASSES = {"Warrior", "Mage", "Order", "Chaos"};
+    private void queueAttack() {
+        if (activeHero == null) return;
+        final Hero attacker = activeHero;
+        pendingActions.add(() -> {
+            Mob target = pickLivingMob();
+            if (target != null) {
+                int damage = Math.max(0, attacker.getAttack() - (int)(target.getPower() * 0.5));
+                target.takeDamage(damage);
+                log(attacker.getName() + " attacks for " + damage + " damage!");
+            }
+        });
+        log(activeHero.getName() + " chose: Attack");
+        activeHero = null;
+        promptNextHero();
+    }
 
-    private void offerRecruitment() {
-        String recruitClass = HERO_CLASSES[random.nextInt(HERO_CLASSES.length)];
-        int recruitLevel    = 1 + random.nextInt(4);
-        int cost            = recruitLevel == 1 ? 0 : 200 * recruitLevel;
-        String heroName     = recruitClass + "-" + (party.size() + 1);
+    private void queueDefend() {
+        if (activeHero == null) return;
+        final Hero defender = activeHero;
+        pendingActions.add(() -> {
+            defender.defend();
+            log(defender.getName() + " defends. +10 HP, +5 Mana.");
+        });
+        log(activeHero.getName() + " chose: Defend");
+        activeHero = null;
+        promptNextHero();
+    }
 
-        String msg = "<html>A wandering <b>" + recruitClass + "</b> (Lv" + recruitLevel + ") is looking for work!<br>"
-                + (cost == 0 ? "They will join for FREE!" : "Hiring cost: <b>" + cost + "g</b>") + "</html>";
-
-        int choice = JOptionPane.showConfirmDialog(this, msg, "Recruit Hero?", JOptionPane.YES_NO_OPTION);
-        if (choice != JOptionPane.YES_OPTION) return;
-
-        if (gold < cost) {
-            JOptionPane.showMessageDialog(this, "Not enough gold!", "Recruit", JOptionPane.WARNING_MESSAGE);
+    private void queueWait() {
+        if (activeHero == null) return;
+        // Re-add to end of queue so they act last
+        turnQueue.add(activeHero);
+        log(activeHero.getName() + " chose: Wait (acts last)");
+        // Prevent infinite loop — if only waiters remain, just move on
+        boolean allWaiting = turnQueue.stream().allMatch(h -> pendingActions.isEmpty());
+        if (turnQueue.size() == 1 && turnQueue.peek() == activeHero) {
+            // Only this hero left and they chose wait — force them to act
+            final Hero waiter = turnQueue.poll();
+            pendingActions.add(() -> {
+                Mob target = pickLivingMob();
+                if (target != null) {
+                    int damage = Math.max(0, waiter.getAttack() - (int)(target.getPower() * 0.5));
+                    target.takeDamage(damage);
+                    log(waiter.getName() + " (waited) attacks for " + damage + " damage!");
+                }
+            });
+            activeHero = null;
+            resolveRound();
             return;
         }
-
-        gold -= cost;
-        Hero recruit = createHero(recruitClass, heroName);
-        for (int i = 1; i < recruitLevel; i++) recruit.gainExperience(recruit.expNeededForLevel(i + 1));
-        party.add(recruit);
-        log("--- " + heroName + " the " + recruitClass + " (Lv" + recruit.getLevel() + ") joined your party! ---");
-        refreshStats();
+        activeHero = null;
+        promptNextHero();
     }
 
-    // ── Combat Actions ────────────────────────────────────────
-
-    private void playerAttack() {
-        if (!inBattle || currentMobs.isEmpty()) return;
-        Mob target = pickLivingMob();
-        if (target == null) return;
-
-        int damage = Math.max(0, hero.getAttack() - (int)(target.getPower() * 0.5));
-        target.takeDamage(damage);
-        log(hero.getName() + " attacks for " + damage + " damage!");
-        refreshMobPanel();
-
-        checkBattleEnd();
-        if (inBattle) mobsTurn();
-    }
-
-    private void playerDefend() {
-        if (!inBattle) return;
-        hero.defend();
-        log(hero.getName() + " defends. +10 HP, +5 Mana.");
-        refreshStats();
-        if (inBattle) mobsTurn();
-    }
-
-    private void playerWait() {
-        if (!inBattle) return;
-        log(hero.getName() + " waits...");
-        mobsTurn();
-        // After all mobs act, hero acts last
-        log(hero.getName() + " acts after waiting.");
-    }
-
-    private void playerCast() {
-        if (!inBattle || currentMobs.isEmpty()) return;
-
-        String[] spells = getSpellOptions();
-        if (spells.length == 0) {
-            log("No spells available!");
-            return;
-        }
+    private void queueCast() {
+        if (activeHero == null) return;
+        String[] spells = getSpellOptions(activeHero);
+        if (spells.length == 0) { log("No spells available!"); return; }
 
         String chosen = (String) JOptionPane.showInputDialog(
-                this, "Choose a spell:", "Cast Spell",
+                this, "Choose a spell for " + activeHero.getName() + ":", "Cast Spell",
                 JOptionPane.PLAIN_MESSAGE, null, spells, spells[0]);
-
         if (chosen == null) return;
 
-        Hero[] dummyParty = { hero };
-        Mob[]  mobArray   = currentMobs.toArray(new Mob[0]);
+        final Hero caster      = activeHero;
+        final String spell     = chosen;
+        final Hero[] partySnap = party.toArray(new Hero[0]);
 
-        // Route spell to the right method
-        castSpell(chosen, dummyParty, mobArray);
-        refreshStats();
-        checkBattleEnd();
-        if (inBattle) mobsTurn();
+        pendingActions.add(() -> {
+            Mob[] mobArr = currentMobs.toArray(new Mob[0]);
+            castSpell(caster, spell, partySnap, mobArr);
+        });
+        log(activeHero.getName() + " chose: " + spell);
+        activeHero = null;
+        promptNextHero();
     }
 
-    private void castSpell(String spell, Hero[] party, Mob[] mobs) {
-        // Build Hero[] from mobs for damage — mobs don't extend Hero so we use takeDamage directly
+    // ── Resolve Round ─────────────────────────────────────────
+
+    /**
+     * All heroes have chosen. Now apply:
+     * 1. Hero actions (in order chosen)
+     * 2. Mob actions
+     * Then check for battle end.
+     */
+    private void resolveRound() {
+        setActionButtons(false, false);
+        lblTurn.setText("Resolving round...");
+
+        log("=== Heroes act ===");
+        for (Runnable action : pendingActions) {
+            action.run();
+        }
+        refreshStats();
+        refreshMobPanel();
+
+        if (checkBattleEnd()) return;
+
+        log("=== Enemies act ===");
+        mobsTurn();
+    }
+
+    private void castSpell(Hero caster, String spell, Hero[] partyArr, Mob[] mobs) {
         switch (spell) {
-            case "Protect": ((Order) hero).protect(party); break;
-            case "Heal":    ((Order) hero).heal(party);    break;
+            case "Protect": ((Order) caster).protect(partyArr); break;
+            case "Heal":    ((Order) caster).heal(partyArr);    break;
             case "Fireball":
-                if (!hero.spendMana(30)) return;
-                log(hero.getName() + " launches Fireball!");
+                if (!caster.spendMana(30)) return;
+                log(caster.getName() + " launches Fireball!");
                 for (int i = 0; i < Math.min(3, mobs.length); i++) {
-                    int dmg = Math.max(0, hero.getAttack() - (int)(mobs[i].getPower() * 0.3));
-                    mobs[i].takeDamage(dmg);
+                    if (mobs[i].isAlive()) {
+                        int dmg = Math.max(0, caster.getAttack() - (int)(mobs[i].getPower() * 0.3));
+                        mobs[i].takeDamage(dmg);
+                    }
                 }
                 break;
             case "Chain Lightning":
-                if (!hero.spendMana(40)) return;
-                log(hero.getName() + " casts Chain Lightning!");
-                double dmg = hero.getAttack();
-                for (Mob m : mobs) {
-                    if (m.isAlive()) { m.takeDamage(dmg); dmg *= 0.25; }
-                }
+                if (!caster.spendMana(40)) return;
+                log(caster.getName() + " casts Chain Lightning!");
+                double dmg = caster.getAttack();
+                for (Mob m : mobs) { if (m.isAlive()) { m.takeDamage(dmg); dmg *= 0.25; } }
                 break;
             case "Berserker Attack":
-                if (!hero.spendMana(60)) return;
-                log(hero.getName() + " goes Berserk!");
-                if (mobs.length > 0) {
-                    int primary = Math.max(0, hero.getAttack() - (int)(mobs[0].getPower() * 0.3));
+                if (!caster.spendMana(60)) return;
+                log(caster.getName() + " goes Berserk!");
+                if (mobs.length > 0 && mobs[0].isAlive()) {
+                    int primary = Math.max(0, caster.getAttack() - (int)(mobs[0].getPower() * 0.3));
                     mobs[0].takeDamage(primary);
                     int splash = (int)(primary * 0.25);
-                    for (int i = 1; i < Math.min(3, mobs.length); i++) mobs[i].takeDamage(splash);
+                    for (int i = 1; i < Math.min(3, mobs.length); i++)
+                        if (mobs[i].isAlive()) mobs[i].takeDamage(splash);
                 }
                 break;
-            case "Replenish": ((Mage) hero).replenish(party); break;
+            case "Replenish": ((Mage) caster).replenish(partyArr); break;
         }
         refreshMobPanel();
     }
 
-    private String[] getSpellOptions() {
-        String cls = hero.getClass().getSimpleName().toUpperCase();
-        switch (cls) {
+    private String[] getSpellOptions(Hero h) {
+        switch (h.getClass().getSimpleName().toUpperCase()) {
             case "ORDER":   return new String[]{"Protect", "Heal"};
             case "CHAOS":   return new String[]{"Fireball", "Chain Lightning"};
             case "WARRIOR": return new String[]{"Berserker Attack"};
@@ -356,92 +396,218 @@ public class GamePanel extends JPanel {
         }
         refreshStats();
         refreshMobPanel();
-        boolean allDead = party.stream().noneMatch(Hero::isAlive);
-        if (allDead) playerDied();
+
+        if (party.stream().noneMatch(Hero::isAlive)) { playerDied(); return; }
+
+        // Start the next round
+        if (inBattle) startNewRound();
     }
 
     // ── Battle Resolution ─────────────────────────────────────
 
-    private void checkBattleEnd() {
-        boolean allDead = currentMobs.stream().noneMatch(Mob::isAlive);
-        if (allDead) {
-            inBattle = false;
-            int totalXp   = currentMobs.stream().mapToInt(Mob::getXpReward).sum();
-            int totalGold = currentMobs.stream().mapToInt(Mob::getGoldReward).sum();
-            gold += totalGold;
+    private boolean checkBattleEnd() {
+        if (currentMobs.stream().anyMatch(Mob::isAlive)) return false;
 
-            // XP split among living party members per spec
-            List<Hero> survivors = new ArrayList<>();
-            for (Hero h : party) { if (h.isAlive()) survivors.add(h); }
-            int xpEach = survivors.isEmpty() ? 0 : totalXp / survivors.size();
+        inBattle       = false;
+        turnQueue      = null;
+        activeHero     = null;
+        pendingActions = null;
+        lblTurn.setText(" ");
 
-            log("--- Victory! +" + totalXp + " XP (each survivor gets " + xpEach + "), +" + totalGold + " Gold ---");
+        int totalXp   = currentMobs.stream().mapToInt(Mob::getXpReward).sum();
+        int totalGold = currentMobs.stream().mapToInt(Mob::getGoldReward).sum();
+        gold += totalGold;
 
-            for (Hero h : survivors) {
-                int before = h.getLevel();
-                h.gainExperience(xpEach);
-                int expToNext = h.expNeededForLevel(h.getLevel() + 1) - h.getExperience();
-                if (h.getLevel() > before) {
-                    log(h.getName() + " levelled up to Lv" + h.getLevel() + "!");
-                }
-                if (h.getLevel() < 20) {
-                    log(h.getName() + ": " + h.getExperience() + " XP | " + expToNext + " to next level");
-                }
-            }
+        List<Hero> survivors = new ArrayList<>();
+        for (Hero h : party) { if (h.isAlive()) survivors.add(h); }
+        int xpEach = survivors.isEmpty() ? 0 : totalXp / survivors.size();
 
-            refreshStats();
-            refreshMobPanel();
-            setActionButtons(false, true);
-            saveProgress();
+        log("--- Victory! +" + totalXp + " XP (each survivor gets " + xpEach + "), +" + totalGold + " Gold ---");
+        for (Hero h : survivors) {
+            int before = h.getLevel();
+            h.gainExperience(xpEach);
+            if (h.getLevel() > before) log(h.getName() + " levelled up to Lv" + h.getLevel() + "!");
+            if (h.getLevel() < 20)
+                log(h.getName() + ": " + h.getExperience() + " XP | "
+                        + (h.expNeededForLevel(h.getLevel() + 1) - h.getExperience()) + " to next level");
         }
+
+        refreshStats();
+        refreshMobPanel();
+        setActionButtons(false, true);
+        saveProgress();
+        return true;
     }
 
     private void playerDied() {
-        inBattle = false;
+        inBattle       = false;
+        turnQueue      = null;
+        activeHero     = null;
+        pendingActions = null;
+        lblTurn.setText(" ");
         int lostGold = (int)(gold * 0.10);
         gold -= lostGold;
-        log("--- You were defeated! Lost " + lostGold + " gold. Returning to last inn... ---");
-        setActionButtons(false, true);
-        hero.fullRestore();
+        log("--- Defeated! Lost " + lostGold + " gold. ---");
+        for (Hero h : party) h.fullRestore();
         refreshStats();
-        JOptionPane.showMessageDialog(this, "You were defeated! Lost " + lostGold + " gold.", "Defeated", JOptionPane.WARNING_MESSAGE);
+        setActionButtons(false, true);
+        JOptionPane.showMessageDialog(this, "Defeated! Lost " + lostGold + " gold.", "Defeated", JOptionPane.WARNING_MESSAGE);
     }
 
     // ── Inn ───────────────────────────────────────────────────
 
+    private void visitInn() {
+        inBattle = false;
+        setActionButtons(false, true);
+        for (Hero h : party) h.fullRestore();
+        log("--- You found an Inn! All party members fully restored. ---");
+        refreshStats();
+        if (currentRoom <= 10 && party.size() < 5) offerRecruitment();
+        showInnShop();
+    }
+
+    private static final String[] HERO_CLASSES = {"Warrior", "Mage", "Order", "Chaos"};
+
+    private void offerRecruitment() {
+        String recruitClass = HERO_CLASSES[random.nextInt(HERO_CLASSES.length)];
+        int recruitLevel    = 1 + random.nextInt(4);
+        int cost            = recruitLevel == 1 ? 0 : 200 * recruitLevel;
+        String heroName     = recruitClass + "-" + (party.size() + 1);
+
+        String msg = "<html>A wandering <b>" + recruitClass + "</b> (Lv" + recruitLevel + ") is looking for work!<br>"
+                + (cost == 0 ? "They will join for FREE!" : "Hiring cost: <b>" + cost + "g</b>") + "</html>";
+
+        if (JOptionPane.showConfirmDialog(this, msg, "Recruit Hero?", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+        if (gold < cost) { JOptionPane.showMessageDialog(this, "Not enough gold!", "Recruit", JOptionPane.WARNING_MESSAGE); return; }
+
+        gold -= cost;
+        Hero recruit = createHero(recruitClass, heroName);
+        for (int i = 1; i < recruitLevel; i++) recruit.gainExperience(recruit.expNeededForLevel(i + 1));
+        party.add(recruit);
+        log("--- " + heroName + " the " + recruitClass + " (Lv" + recruit.getLevel() + ") joined! ---");
+        refreshStats();
+    }
+
+    // Item definitions: name -> [cost, hp, mana, fullRestore]
+    private static final Object[][] ITEM_DEFS = {
+            {"Bread",  200,  20,   0,  false},
+            {"Cheese", 500,  50,   0,  false},
+            {"Steak",  1000, 200,  0,  false},
+            {"Water",  150,  0,    10, false},
+            {"Juice",  400,  0,    30, false},
+            {"Wine",   750,  0,    100,false},
+            {"Elixir", 2000, 0,    0,  true },
+    };
+
     private void showInnShop() {
-        String[] items   = {"Bread (200g +20HP)", "Cheese (500g +50HP)", "Steak (1000g +200HP)",
-                "Water (150g +10MP)", "Juice (400g +30MP)", "Wine (750g +100MP)",
-                "Elixir (2000g Full)", "Leave Inn"};
-        boolean shopping = true;
-        while (shopping) {
-            String pick = (String) JOptionPane.showInputDialog(
-                    this, "Gold: " + gold + " | HP: " + (int)hero.getHp() + "/" + (int)hero.getMaxHp()
-                            + " | Mana: " + hero.getMana() + "/" + hero.getMaxMana(),
-                    "Inn Shop", JOptionPane.PLAIN_MESSAGE, null, items, items[0]);
+        while (true) {
+            // Build shop display with costs and current stock
+            String[] options = new String[ITEM_DEFS.length + 1];
+            for (int i = 0; i < ITEM_DEFS.length; i++) {
+                String name = (String) ITEM_DEFS[i][0];
+                int cost    = (int)    ITEM_DEFS[i][1];
+                int hp      = (int)    ITEM_DEFS[i][2];
+                int mana    = (int)    ITEM_DEFS[i][3];
+                boolean full= (boolean)ITEM_DEFS[i][4];
+                int qty     = inventory.getOrDefault(name, 0);
+                String effect = full ? "Full restore" : (hp > 0 ? "+" + hp + " HP" : "") + (mana > 0 ? " +" + mana + " MP" : "");
+                options[i] = name + " - " + cost + "g (" + effect + ") [owned: " + qty + "]";
+            }
+            options[ITEM_DEFS.length] = "Leave Shop";
 
-            if (pick == null || pick.equals("Leave Inn")) { shopping = false; break; }
+            String pick = (String) JOptionPane.showInputDialog(this,
+                    "Gold: " + gold + "  |  Inventory: " + inventorySummary(),
+                    "Inn Shop", JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
 
-            if      (pick.startsWith("Bread"))  buyItem(200,  () -> hero.heal(20));
-            else if (pick.startsWith("Cheese")) buyItem(500,  () -> hero.heal(50));
-            else if (pick.startsWith("Steak"))  buyItem(1000, () -> hero.heal(200));
-            else if (pick.startsWith("Water"))  buyItem(150,  () -> hero.restoreMana(10));
-            else if (pick.startsWith("Juice"))  buyItem(400,  () -> hero.restoreMana(30));
-            else if (pick.startsWith("Wine"))   buyItem(750,  () -> hero.restoreMana(100));
-            else if (pick.startsWith("Elixir")) buyItem(2000, () -> hero.fullRestore());
+            if (pick == null || pick.startsWith("Leave")) break;
+
+            // Find which item was picked
+            for (Object[] def : ITEM_DEFS) {
+                if (pick.startsWith((String) def[0])) {
+                    int cost = (int) def[1];
+                    if (gold < cost) {
+                        JOptionPane.showMessageDialog(this, "Not enough gold!", "Shop", JOptionPane.WARNING_MESSAGE);
+                    } else {
+                        gold -= cost;
+                        String name = (String) def[0];
+                        inventory.put(name, inventory.getOrDefault(name, 0) + 1);
+                        log("Bought " + name + " for " + cost + "g. [" + name + " x" + inventory.get(name) + "]");
+                        refreshStats();
+                    }
+                    break;
+                }
+            }
         }
         refreshStats();
     }
 
-    private void buyItem(int cost, Runnable effect) {
-        if (gold >= cost) {
-            gold -= cost;
-            effect.run();
-            log("Purchased item for " + cost + "g.");
-            refreshStats();
-        } else {
-            JOptionPane.showMessageDialog(this, "Not enough gold!", "Shop", JOptionPane.WARNING_MESSAGE);
+    /** Use items from inventory between battles */
+    public void useItems() {
+        if (inBattle) {
+            JOptionPane.showMessageDialog(this, "Can't use items during battle!", "Items", JOptionPane.WARNING_MESSAGE);
+            return;
         }
+        if (inventory.isEmpty() || inventory.values().stream().allMatch(q -> q == 0)) {
+            JOptionPane.showMessageDialog(this, "Your inventory is empty!", "Items", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+
+        while (true) {
+            // Build inventory list
+            List<String> available = new ArrayList<>();
+            for (Map.Entry<String, Integer> e : inventory.entrySet()) {
+                if (e.getValue() > 0) available.add(e.getKey() + " x" + e.getValue());
+            }
+            if (available.isEmpty()) break;
+            available.add("Close");
+
+            String pick = (String) JOptionPane.showInputDialog(this,
+                    "Select item to use:", "Inventory",
+                    JOptionPane.PLAIN_MESSAGE, null, available.toArray(), available.get(0));
+            if (pick == null || pick.equals("Close")) break;
+
+            String itemName = pick.split(" x")[0];
+
+            // Pick target hero
+            String[] heroNames = party.stream().map(Hero::getName).toArray(String[]::new);
+            String targetName = (String) JOptionPane.showInputDialog(this,
+                    "Use " + itemName + " on which hero?", "Use Item",
+                    JOptionPane.PLAIN_MESSAGE, null, heroNames, heroNames[0]);
+            if (targetName == null) continue;
+
+            Hero target = party.stream().filter(h -> h.getName().equals(targetName)).findFirst().orElse(hero);
+
+            // Apply effect
+            for (Object[] def : ITEM_DEFS) {
+                if (def[0].equals(itemName)) {
+                    int hp      = (int)    def[2];
+                    int mana    = (int)    def[3];
+                    boolean full= (boolean)def[4];
+                    if (full)       target.fullRestore();
+                    else {
+                        if (hp   > 0) target.heal(hp);
+                        if (mana > 0) target.restoreMana(mana);
+                    }
+                    inventory.put(itemName, inventory.get(itemName) - 1);
+                    log(target.getName() + " used " + itemName + "!");
+                    refreshStats();
+                    break;
+                }
+            }
+        }
+    }
+
+    private String inventorySummary() {
+        if (inventory.isEmpty()) return "empty";
+        return inventory.entrySet().stream()
+                .filter(e -> e.getValue() > 0)
+                .map(e -> e.getKey() + "x" + e.getValue())
+                .collect(Collectors.joining(", "));
+    }
+
+    private void buyItem(int cost, Runnable effect) {
+        if (gold >= cost) { gold -= cost; effect.run(); log("Purchased item for " + cost + "g."); refreshStats(); }
+        else JOptionPane.showMessageDialog(this, "Not enough gold!", "Shop", JOptionPane.WARNING_MESSAGE);
     }
 
     // ── End Campaign ──────────────────────────────────────────
@@ -462,9 +628,8 @@ public class GamePanel extends JPanel {
     // ── Helpers ───────────────────────────────────────────────
 
     private void saveProgress() {
-        DatabaseManager.getInstance().updateSave(
-                currentUser[0], hero.getLevel(), hero.getHp(),
-                hero.getAttack(), hero.getDefense(), hero.getMana(), gold, currentRoom);
+        DatabaseManager.getInstance().updateSave(currentUser[0], hero.getLevel(),
+                hero.getHp(), hero.getAttack(), hero.getDefense(), hero.getMana(), gold, currentRoom);
     }
 
     private Mob pickLivingMob() {
@@ -477,15 +642,16 @@ public class GamePanel extends JPanel {
     }
 
     private void refreshStats() {
-        if (hero == null) return;
+        if (party == null) return;
         StringBuilder sb = new StringBuilder("<html>");
         for (Hero h : party) {
-            sb.append(h.getName())
-                    .append(" [").append(h.getClassName()).append(" Lv").append(h.getLevel()).append("] ")
+            String color = h == activeHero ? "green" : "black";
+            sb.append("<font color='").append(color).append("'>")
+                    .append(h.getName()).append(" [").append(h.getClassName()).append(" Lv").append(h.getLevel()).append("] ")
                     .append("HP:").append((int)h.getHp()).append("/").append((int)h.getMaxHp())
                     .append(" MP:").append(h.getMana()).append("/").append(h.getMaxMana());
-            if (!h.isAlive()) sb.append(" <font color='red'>DEAD</font>");
-            sb.append("<br>");
+            if (!h.isAlive()) sb.append(" <b>DEAD</b>");
+            sb.append("</font><br>");
         }
         sb.append("</html>");
         lblHeroStats.setText(sb.toString());
@@ -513,5 +679,6 @@ public class GamePanel extends JPanel {
         btnWait.setEnabled(battleMode);
         btnCast.setEnabled(battleMode);
         btnNextRoom.setEnabled(showNext);
+        btnUseItems.setEnabled(!battleMode); // only usable outside battle
     }
 }
