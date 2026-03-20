@@ -92,8 +92,8 @@ public class GamePanel extends JPanel {
         btnDefend   = new JButton("Defend");
         btnWait     = new JButton("Wait");
         btnCast     = new JButton("Cast Spell");
-        btnNextRoom = new JButton("Next Room ▶");
-        btnUseItems = new JButton("Use Items 🎒");
+        btnNextRoom = new JButton("Next Room");
+        btnUseItems = new JButton("Use Items");
         actionPanel.add(btnAttack);
         actionPanel.add(btnDefend);
         actionPanel.add(btnWait);
@@ -115,7 +115,50 @@ public class GamePanel extends JPanel {
         roomContext.setState(new InnState()); // start disabled until game begins
     }
 
+    // ── PvP State ─────────────────────────────────────────────
+    private boolean isPvP = false;
+    private String  pvpPlayer1Name;
+    private String  pvpPlayer2Name;
+    private List<Hero> pvpPlayer2Party;
+    private java.util.function.BiConsumer<String, String> pvpResultCallback;
+
     // ── Init / Load ───────────────────────────────────────────
+
+    /** Called from PvPPanel to launch a PvP battle */
+    public void startPvPBattle(List<Hero> p1Party, String p1Name,
+                               List<Hero> p2Party, String p2Name,
+                               java.util.function.BiConsumer<String, String> onResult) {
+        isPvP            = true;
+        pvpPlayer1Name   = p1Name;
+        pvpPlayer2Name   = p2Name;
+        pvpPlayer2Party  = new ArrayList<>(p2Party);
+        pvpResultCallback = onResult;
+
+        party       = new ArrayList<>(p1Party);
+        hero        = party.get(0);
+        gold        = 0;
+        currentRoom = 0;
+        logArea.setText("");
+        log("=== PvP Battle: " + p1Name + " vs " + p2Name + " ===");
+        log(p1Name + "'s party: " + party.stream()
+                .map(h -> h.getName() + " [" + h.getClassName() + " Lv" + h.getLevel() + "]")
+                .collect(Collectors.joining(", ")));
+        log(p2Name + "'s party: " + pvpPlayer2Party.stream()
+                .map(h -> h.getName() + " [" + h.getClassName() + " Lv" + h.getLevel() + "]")
+                .collect(Collectors.joining(", ")));
+
+        // Spawn the opponent party as the "mobs" for this battle
+        currentMobs = new ArrayList<>();
+        for (Hero opponent : pvpPlayer2Party) {
+            currentMobs.add(new PvPMob(opponent));
+        }
+        inBattle = true;
+        roomContext.setState(new State.BattleState());
+        lblRoom.setText("PvP Battle");
+        refreshStats();
+        refreshMobPanel();
+        startNewRound();
+    }
 
     public void startNewGame(List<Hero> startingParty) {
         party       = new ArrayList<>(startingParty);
@@ -218,8 +261,6 @@ public class GamePanel extends JPanel {
     private void startNewRound() {
         turnQueue      = new LinkedList<>();
         pendingActions = new ArrayList<>();
-
-        refreshMobPanel();
 
         for (Hero h : party) {
             if (h.isAlive() && !h.isStunned()) turnQueue.add(h);
@@ -455,6 +496,15 @@ public class GamePanel extends JPanel {
         refreshStats();
         refreshMobPanel();
         roomContext.setState(new VictoryState());
+
+        if (isPvP) {
+            isPvP = false;
+            log("=== " + pvpPlayer1Name + " wins the PvP battle! ===");
+            if (pvpResultCallback != null)
+                pvpResultCallback.accept(pvpPlayer1Name, pvpPlayer2Name);
+            return true;
+        }
+
         saveProgress();
         return true;
     }
@@ -465,6 +515,16 @@ public class GamePanel extends JPanel {
         activeHero     = null;
         pendingActions = null;
         lblTurn.setText(" ");
+
+        if (isPvP) {
+            isPvP = false;
+            log("=== " + pvpPlayer2Name + " wins the PvP battle! ===");
+            if (pvpResultCallback != null)
+                pvpResultCallback.accept(pvpPlayer2Name, pvpPlayer1Name);
+            roomContext.setState(new DefeatedState());
+            return;
+        }
+
         int lostGold = (int)(gold * 0.10);
         gold -= lostGold;
         log("--- Defeated! Lost " + lostGold + " gold. ---");
@@ -680,12 +740,15 @@ public class GamePanel extends JPanel {
     private void refreshMobPanel() {
         mobPanel.removeAll();
         for (Mob mob : currentMobs) {
+            String label = (mob instanceof PvPMob)
+                    ? ((PvPMob) mob).getHero().getName() + " [" + ((PvPMob) mob).getHero().getClassName() + "]"
+                    : "Enemy";
             String txt = mob.isAlive()
-                    ? "<html>Enemy<br>HP: " + (int)mob.getHp() + "</html>"
-                    : "<html><strike>Enemy</strike><br>Defeated</html>";
+                    ? "<html>" + label + "<br>HP: " + (int)mob.getHp() + "</html>"
+                    : "<html><strike>" + label + "</strike><br>Defeated</html>";
             JLabel lbl = new JLabel(txt, SwingConstants.CENTER);
             lbl.setBorder(BorderFactory.createLineBorder(mob.isAlive() ? Color.RED : Color.GRAY));
-            lbl.setPreferredSize(new Dimension(80, 60));
+            lbl.setPreferredSize(new Dimension(100, 60));
             mobPanel.add(lbl);
         }
         mobPanel.revalidate();

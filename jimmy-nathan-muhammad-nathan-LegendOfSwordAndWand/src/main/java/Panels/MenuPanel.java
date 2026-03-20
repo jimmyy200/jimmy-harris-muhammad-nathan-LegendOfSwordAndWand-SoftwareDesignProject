@@ -10,16 +10,13 @@ public class MenuPanel extends JPanel {
 
         add(new JLabel("MAIN MENU"));
 
-        JButton btnNewGame    = new JButton("New Game");
-        JButton btnLoadGame   = new JButton("Load Game");
-        JButton btnGoSettings = new JButton("Go to Settings");
+        JButton btnPvE     = new JButton("PvE Campaign");
+        JButton btnPvP     = new JButton("PvP Battle");
 
-        btnNewGame.addActionListener(e    -> cl.show(container, "ClassSelect"));
-        btnLoadGame.addActionListener(e   -> cl.show(container, "LoadGame"));
-        btnGoSettings.addActionListener(e -> cl.show(container, "Settings"));
+        btnPvE.addActionListener(e -> cl.show(container, "PvEMenu"));
+        btnPvP.addActionListener(e -> cl.show(container, "PvP"));
 
-        add(btnNewGame);
-        add(btnLoadGame);
-        add(btnGoSettings);
+        add(btnPvE);
+        add(btnPvP);
     }
 }

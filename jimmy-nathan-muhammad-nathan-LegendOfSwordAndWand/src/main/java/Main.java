@@ -13,16 +13,15 @@ public class Main {
 
         GamePanel gamePanel = new GamePanel(container, cl, currentUser);
 
-        // Add screens to the container
-        container.add(new RegisterPanel(container, cl), "Register");
-        container.add(new LoginPanel(container, cl, currentUser), "Login");
-        container.add(new MenuPanel(container, cl), "Menu");
+        container.add(new RegisterPanel(container, cl),                 "Register");
+        container.add(new LoginPanel(container, cl, currentUser),       "Login");
+        container.add(new MenuPanel(container, cl),                     "Menu");
+        container.add(new PvEMenuPanel(container, cl),                  "PvEMenu");
         container.add(new ClassSelectPanel(container, cl, currentUser, gamePanel), "ClassSelect");
-        container.add(new NewGamePanel(container, cl, currentUser),    "NewGame");
-        container.add(new LoadGamePanel(container, cl, currentUser, gamePanel),   "LoadGame");
-        container.add(gamePanel,"Game");
+        container.add(new LoadGamePanel(container, cl, currentUser, gamePanel),    "LoadGame");
+        container.add(new PvPPanel(container, cl, currentUser, gamePanel),         "PvP");
+        container.add(gamePanel,                                        "Game");
 
-        // Ensure Login is the first thing seen
         cl.show(container, "Login");
 
         frame.add(container);

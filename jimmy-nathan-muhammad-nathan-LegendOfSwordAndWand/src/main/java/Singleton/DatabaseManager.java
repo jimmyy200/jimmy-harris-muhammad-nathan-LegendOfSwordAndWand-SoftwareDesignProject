@@ -188,4 +188,64 @@ public class DatabaseManager {
             return false;
         }
     }
+
+    /** Check if a user has at least one saved party */
+    public boolean hasSavedParty(String username) {
+        String query = "SELECT COUNT(*) FROM party_saves WHERE username = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+            stmt.setString(1, username);
+            ResultSet rs = stmt.executeQuery();
+            return rs.next() && rs.getInt(1) > 0;
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+            return false;
+        }
+    }
+
+    /** Check if a username exists */
+    public boolean userExists(String username) {
+        String query = "SELECT COUNT(*) FROM users WHERE username = ?";
+        try (Connection conn = getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+            stmt.setString(1, username);
+            ResultSet rs = stmt.executeQuery();
+            return rs.next() && rs.getInt(1) > 0;
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+            return false;
+        }
+    }
+
+    /** Record PvP result — winner gets a win, loser gets a loss */
+    public void recordPvPResult(String winner, String loser) {
+        String upsert = "INSERT INTO pvp_league (username, wins, losses) VALUES (?, ?, ?) " +
+                "ON DUPLICATE KEY UPDATE wins = wins + ?, losses = losses + ?";
+        try (Connection conn = getConnection()) {
+            try (PreparedStatement stmt = conn.prepareStatement(upsert)) {
+                stmt.setString(1, winner); stmt.setInt(2, 1); stmt.setInt(3, 0);
+                stmt.setInt(4, 1);        stmt.setInt(5, 0);
+                stmt.executeUpdate();
+            }
+            try (PreparedStatement stmt = conn.prepareStatement(upsert)) {
+                stmt.setString(1, loser); stmt.setInt(2, 0); stmt.setInt(3, 1);
+                stmt.setInt(4, 0);       stmt.setInt(5, 1);
+                stmt.executeUpdate();
+            }
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+        }
+    }
+
+    /** Get league standings ordered by wins desc */
+    public ResultSet getLeagueStandings() {
+        String query = "SELECT username, wins, losses FROM pvp_league ORDER BY wins DESC, losses ASC";
+        try {
+            Connection conn = getConnection();
+            return conn.prepareStatement(query).executeQuery();
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+            return null;
+        }
+    }
 }

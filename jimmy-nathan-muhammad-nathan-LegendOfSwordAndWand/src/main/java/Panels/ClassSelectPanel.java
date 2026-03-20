@@ -62,8 +62,8 @@ public class ClassSelectPanel extends JPanel {
 
         JPanel btnRow = new JPanel(new FlowLayout());
 
-        JButton undoBtn  = new JButton("↩ Undo Last");
-        JButton startBtn = new JButton("▶ Start Game");
+        JButton undoBtn  = new JButton("Undo Last");
+        JButton startBtn = new JButton("Start Game");
         JButton backBtn  = new JButton("Back to Menu");
 
         btnRow.add(undoBtn);
