@@ -17,7 +17,6 @@ public class Main {
         container.add(new RegisterPanel(container, cl), "Register");
         container.add(new LoginPanel(container, cl, currentUser), "Login");
         container.add(new MenuPanel(container, cl), "Menu");
-        container.add(new SettingsPanel(container, cl), "Settings");
         container.add(new ClassSelectPanel(container, cl, currentUser, gamePanel), "ClassSelect");
         container.add(new NewGamePanel(container, cl, currentUser),    "NewGame");
         container.add(new LoadGamePanel(container, cl, currentUser, gamePanel),   "LoadGame");
