@@ -25,7 +25,7 @@ public class Main {
         cl.show(container, "Login");
 
         frame.add(container);
-        frame.setSize(600, 500);
+        frame.setSize(900, 700);
         frame.setLocationRelativeTo(null);
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         frame.setVisible(true);
