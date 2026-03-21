@@ -2,32 +2,22 @@ package State;
 
 import javax.swing.JButton;
 
-/**
- * Active battle — combat buttons enabled, navigation disabled.
- */
 public class BattleState implements RoomState {
-
-    @Override
-    public void enter(RoomContext context) {
-        System.out.println("State: Entering Battle");
-    }
+    @Override public void enter(RoomContext context) {}
+    @Override public void onAttack(RoomContext c)   {}
+    @Override public void onDefend(RoomContext c)   {}
+    @Override public void onWait(RoomContext c)     {}
+    @Override public void onCast(RoomContext c)     {}
+    @Override public void onNextRoom(RoomContext c) {}
+    @Override public void onUseItems(RoomContext c) {}
 
     @Override
     public void configureButtons(JButton btnAttack, JButton btnDefend, JButton btnWait,
-                                 JButton btnCast, JButton btnNextRoom, JButton btnUseItems) {
-        btnAttack.setEnabled(true);
-        btnDefend.setEnabled(true);
-        btnWait.setEnabled(true);
-        btnCast.setEnabled(true);
-        btnNextRoom.setEnabled(false);
-        btnUseItems.setEnabled(false);
+                                 JButton btnCast, JButton btnNextRoom, JButton btnUseItems,
+                                 JButton btnParty, JButton btnExit) {
+        btnAttack.setEnabled(true);  btnDefend.setEnabled(true);
+        btnWait.setEnabled(true);    btnCast.setEnabled(true);
+        btnNextRoom.setEnabled(false); btnUseItems.setEnabled(false);
+        btnParty.setEnabled(false);  btnExit.setEnabled(false);
     }
-
-    // In BattleState these are handled by GamePanel's queue system
-    @Override public void onAttack(RoomContext context)   {}
-    @Override public void onDefend(RoomContext context)   {}
-    @Override public void onWait(RoomContext context)     {}
-    @Override public void onCast(RoomContext context)     {}
-    @Override public void onNextRoom(RoomContext context) {}
-    @Override public void onUseItems(RoomContext context) {}
 }

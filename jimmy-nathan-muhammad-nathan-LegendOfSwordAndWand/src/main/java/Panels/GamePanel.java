@@ -27,21 +27,27 @@ public class GamePanel extends JPanel {
     private boolean    inBattle;
 
     // ── Inventory ─────────────────────────────────────────────
-    // Maps item name -> quantity
     private Map<String, Integer> inventory = new LinkedHashMap<>();
 
     // ── Turn tracking ─────────────────────────────────────────
-    private Queue<Hero>    turnQueue;      // heroes still to choose their action
-    private Hero           activeHero;    // hero currently choosing
-    private List<Runnable> pendingActions; // queued hero actions to resolve together
+    private Queue<Hero>    turnQueue;
+    private Hero           activeHero;
+    private List<Runnable> pendingActions;
 
     // ── State ─────────────────────────────────────────────────
     private RoomContext roomContext;
 
+    // ── PvP State ─────────────────────────────────────────────
+    private boolean isPvP = false;
+    private String  pvpPlayer1Name;
+    private String  pvpPlayer2Name;
+    private List<Hero> pvpPlayer2Party;
+    private java.util.function.BiConsumer<String, String> pvpResultCallback;
+
     // ── UI ────────────────────────────────────────────────────
-    private JLabel    lblRoom, lblGold, lblHeroStats, lblTurn;
+    private JLabel    lblRoom, lblGold, lblHeroStats, lblTurn, lblQueue;
     private JTextArea logArea;
-    private JButton   btnAttack, btnDefend, btnWait, btnCast, btnNextRoom, btnUseItems;
+    private JButton   btnAttack, btnDefend, btnWait, btnCast, btnNextRoom, btnUseItems, btnParty, btnExit;
     private JPanel    mobPanel;
     private final String[]   currentUser;
     private final JPanel     container;
@@ -58,6 +64,7 @@ public class GamePanel extends JPanel {
     // ── Build UI ──────────────────────────────────────────────
 
     private void buildUI() {
+        // TOP: stats + room + gold
         JPanel topPanel = new JPanel(new GridLayout(1, 3, 5, 0));
         topPanel.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
         lblHeroStats = new JLabel("", SwingConstants.LEFT);
@@ -68,10 +75,11 @@ public class GamePanel extends JPanel {
         topPanel.add(lblGold);
         add(topPanel, BorderLayout.NORTH);
 
+        // CENTER: mob panel + log
         JPanel centerPanel = new JPanel(new BorderLayout(5, 5));
         mobPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 5));
         mobPanel.setBorder(BorderFactory.createTitledBorder("Enemies"));
-        mobPanel.setPreferredSize(new Dimension(0, 100));
+        mobPanel.setPreferredSize(new Dimension(0, 110));
         centerPanel.add(mobPanel, BorderLayout.NORTH);
 
         logArea = new JTextArea(8, 30);
@@ -81,11 +89,19 @@ public class GamePanel extends JPanel {
         centerPanel.add(new JScrollPane(logArea), BorderLayout.CENTER);
         add(centerPanel, BorderLayout.CENTER);
 
+        // BOTTOM: turn label + queue label + buttons
         JPanel bottomPanel = new JPanel(new BorderLayout());
-        lblTurn = new JLabel(" ", SwingConstants.CENTER);
+
+        JPanel turnPanel = new JPanel(new GridLayout(2, 1));
+        lblTurn  = new JLabel(" ", SwingConstants.CENTER);
         lblTurn.setFont(new Font("SansSerif", Font.BOLD, 13));
         lblTurn.setForeground(new Color(0, 100, 0));
-        bottomPanel.add(lblTurn, BorderLayout.NORTH);
+        lblQueue = new JLabel(" ", SwingConstants.CENTER);
+        lblQueue.setFont(new Font("SansSerif", Font.PLAIN, 11));
+        lblQueue.setForeground(Color.DARK_GRAY);
+        turnPanel.add(lblTurn);
+        turnPanel.add(lblQueue);
+        bottomPanel.add(turnPanel, BorderLayout.NORTH);
 
         JPanel actionPanel = new JPanel(new FlowLayout());
         btnAttack   = new JButton("Attack");
@@ -94,12 +110,16 @@ public class GamePanel extends JPanel {
         btnCast     = new JButton("Cast Spell");
         btnNextRoom = new JButton("Next Room");
         btnUseItems = new JButton("Use Items");
+        btnParty    = new JButton("Party / Inventory");
+        btnExit     = new JButton("Exit Campaign");
         actionPanel.add(btnAttack);
         actionPanel.add(btnDefend);
         actionPanel.add(btnWait);
         actionPanel.add(btnCast);
         actionPanel.add(btnNextRoom);
         actionPanel.add(btnUseItems);
+        actionPanel.add(btnParty);
+        actionPanel.add(btnExit);
         bottomPanel.add(actionPanel, BorderLayout.CENTER);
         add(bottomPanel, BorderLayout.SOUTH);
 
@@ -109,29 +129,22 @@ public class GamePanel extends JPanel {
         btnCast.addActionListener(e     -> queueCast());
         btnNextRoom.addActionListener(e -> enterNextRoom());
         btnUseItems.addActionListener(e -> useItems());
+        btnParty.addActionListener(e    -> showPartyView());
+        btnExit.addActionListener(e     -> exitCampaign());
 
-        // Initialise state machine
-        roomContext = new RoomContext(btnAttack, btnDefend, btnWait, btnCast, btnNextRoom, btnUseItems);
-        roomContext.setState(new InnState()); // start disabled until game begins
+        roomContext = new RoomContext(btnAttack, btnDefend, btnWait, btnCast, btnNextRoom, btnUseItems, btnParty, btnExit);
+        roomContext.setState(new InnState());
     }
-
-    // ── PvP State ─────────────────────────────────────────────
-    private boolean isPvP = false;
-    private String  pvpPlayer1Name;
-    private String  pvpPlayer2Name;
-    private List<Hero> pvpPlayer2Party;
-    private java.util.function.BiConsumer<String, String> pvpResultCallback;
 
     // ── Init / Load ───────────────────────────────────────────
 
-    /** Called from PvPPanel to launch a PvP battle */
     public void startPvPBattle(List<Hero> p1Party, String p1Name,
                                List<Hero> p2Party, String p2Name,
                                java.util.function.BiConsumer<String, String> onResult) {
-        isPvP            = true;
-        pvpPlayer1Name   = p1Name;
-        pvpPlayer2Name   = p2Name;
-        pvpPlayer2Party  = new ArrayList<>(p2Party);
+        isPvP             = true;
+        pvpPlayer1Name    = p1Name;
+        pvpPlayer2Name    = p2Name;
+        pvpPlayer2Party   = new ArrayList<>(p2Party);
         pvpResultCallback = onResult;
 
         party       = new ArrayList<>(p1Party);
@@ -147,13 +160,10 @@ public class GamePanel extends JPanel {
                 .map(h -> h.getName() + " [" + h.getClassName() + " Lv" + h.getLevel() + "]")
                 .collect(Collectors.joining(", ")));
 
-        // Spawn the opponent party as the "mobs" for this battle
         currentMobs = new ArrayList<>();
-        for (Hero opponent : pvpPlayer2Party) {
-            currentMobs.add(new PvPMob(opponent));
-        }
+        for (Hero opponent : pvpPlayer2Party) currentMobs.add(new PvPMob(opponent));
         inBattle = true;
-        roomContext.setState(new State.BattleState());
+        roomContext.setState(new BattleState());
         lblRoom.setText("PvP Battle");
         refreshStats();
         refreshMobPanel();
@@ -165,6 +175,7 @@ public class GamePanel extends JPanel {
         hero        = party.get(0);
         gold        = 0;
         currentRoom = 0;
+        inventory   = new LinkedHashMap<>();
         logArea.setText("");
         log("=== Game Started! Party: " + party.stream()
                 .map(h -> h.getName() + " (" + h.getClassName() + ")")
@@ -172,12 +183,12 @@ public class GamePanel extends JPanel {
         enterNextRoom();
     }
 
-    /** Load a full saved party */
     public void loadGame(List<Hero> savedParty, int savedGold, int savedRoom) {
         party       = new ArrayList<>(savedParty);
         hero        = party.get(0);
         gold        = savedGold;
         currentRoom = savedRoom;
+        inventory   = new LinkedHashMap<>();
         logArea.setText("");
         log("=== Save Loaded! Party: " + party.stream()
                 .map(h -> h.getName() + " (" + h.getClassName() + ")")
@@ -197,6 +208,7 @@ public class GamePanel extends JPanel {
         hero.changeMana(mana);
         this.gold        = goldAmt;
         this.currentRoom = room;
+        inventory        = new LinkedHashMap<>();
         logArea.setText("");
         log("=== Save Loaded! Room " + room + " ===");
         enterNextRoom();
@@ -240,24 +252,18 @@ public class GamePanel extends JPanel {
             int g         = 75  * mobLevel;
             currentMobs.add(new NormalMob(mobHp, power, xp, g, 0.75));
         }
-        log("--- " + numMobs + " enemy mob(s) (Lv" + mobLevel + ") appeared! ---");
+        log("--- " + numMobs + " enemy mob(s) (Lv" + mobLevel + " | ATK:" + (int)(3 + mobLevel * 2) + " DEF:0) appeared! ---");
     }
 
     private void startBattle() {
         inBattle = true;
         roomContext.setState(new BattleState());
+        refreshMobPanel();
         startNewRound();
     }
 
     // ── Round / Turn System ───────────────────────────────────
 
-    /**
-     * A round works like this:
-     * 1. Each living hero picks an action (queued, no damage applied yet)
-     * 2. Once all heroes have chosen, resolveRound() is called
-     * 3. Hero actions are applied first, then mob actions
-     * 4. Damage and effects are calculated and displayed
-     */
     private void startNewRound() {
         turnQueue      = new LinkedList<>();
         pendingActions = new ArrayList<>();
@@ -269,24 +275,24 @@ public class GamePanel extends JPanel {
                 log(h.getName() + " recovers from stun.");
             }
         }
-        log("--- New round. " + turnQueue.size() + " hero(es) to act. ---");
+        log("--- New round. Turn order: " + turnQueue.stream()
+                .map(Hero::getName).collect(Collectors.joining(" → ")) + " ---");
         promptNextHero();
     }
 
-    /** Prompt the next hero in the queue to choose an action */
     private void promptNextHero() {
-        if (turnQueue.isEmpty()) {
-            // All heroes have chosen — resolve the round
-            resolveRound();
-            return;
-        }
+        if (turnQueue.isEmpty()) { resolveRound(); return; }
         activeHero = turnQueue.poll();
         lblTurn.setText("▶ " + activeHero.getName() + "'s turn (" + activeHero.getClassName() + ")");
+        // Show remaining queue
+        String remaining = turnQueue.isEmpty() ? "none"
+                : turnQueue.stream().map(Hero::getName).collect(Collectors.joining(" → "));
+        lblQueue.setText("Up next: " + remaining);
         roomContext.setState(new BattleState());
         refreshStats();
     }
 
-    // ── Queue Actions (no damage yet) ─────────────────────────
+    // ── Queue Actions ─────────────────────────────────────────
 
     private void queueAttack() {
         if (activeHero == null) return;
@@ -318,13 +324,9 @@ public class GamePanel extends JPanel {
 
     private void queueWait() {
         if (activeHero == null) return;
-        // Re-add to end of queue so they act last
         turnQueue.add(activeHero);
         log(activeHero.getName() + " chose: Wait (acts last)");
-        // Prevent infinite loop — if only waiters remain, just move on
-        boolean allWaiting = turnQueue.stream().allMatch(h -> pendingActions.isEmpty());
         if (turnQueue.size() == 1 && turnQueue.peek() == activeHero) {
-            // Only this hero left and they chose wait — force them to act
             final Hero waiter = turnQueue.poll();
             pendingActions.add(() -> {
                 Mob target = pickLivingMob();
@@ -355,11 +357,7 @@ public class GamePanel extends JPanel {
         final Hero caster      = activeHero;
         final String spell     = chosen;
         final Hero[] partySnap = party.toArray(new Hero[0]);
-
-        pendingActions.add(() -> {
-            Mob[] mobArr = currentMobs.toArray(new Mob[0]);
-            castSpell(caster, spell, partySnap, mobArr);
-        });
+        pendingActions.add(() -> castSpell(caster, spell, partySnap, currentMobs.toArray(new Mob[0])));
         log(activeHero.getName() + " chose: " + spell);
         activeHero = null;
         promptNextHero();
@@ -367,23 +365,15 @@ public class GamePanel extends JPanel {
 
     // ── Resolve Round ─────────────────────────────────────────
 
-    /**
-     * All heroes have chosen. Now apply:
-     * 1. Hero actions (in order chosen)
-     * 2. Mob actions
-     * Then check for battle end.
-     */
     private void resolveRound() {
         roomContext.setState(new ResolvingState());
         lblTurn.setText("Resolving round...");
+        lblQueue.setText(" ");
 
         log("=== Heroes act ===");
-        for (Runnable action : pendingActions) {
-            action.run();
-        }
+        for (Runnable action : pendingActions) action.run();
         refreshStats();
         refreshMobPanel();
-
         if (checkBattleEnd()) return;
 
         log("=== Enemies act ===");
@@ -397,12 +387,8 @@ public class GamePanel extends JPanel {
             case "Fireball":
                 if (!caster.spendMana(30)) return;
                 log(caster.getName() + " launches Fireball!");
-                for (int i = 0; i < Math.min(3, mobs.length); i++) {
-                    if (mobs[i].isAlive()) {
-                        int dmg = Math.max(0, caster.getAttack() - (int)(mobs[i].getPower() * 0.3));
-                        mobs[i].takeDamage(dmg);
-                    }
-                }
+                for (int i = 0; i < Math.min(3, mobs.length); i++)
+                    if (mobs[i].isAlive()) { int dmg = Math.max(0, caster.getAttack() - (int)(mobs[i].getPower() * 0.3)); mobs[i].takeDamage(dmg); }
                 break;
             case "Chain Lightning":
                 if (!caster.spendMana(40)) return;
@@ -417,8 +403,7 @@ public class GamePanel extends JPanel {
                     int primary = Math.max(0, caster.getAttack() - (int)(mobs[0].getPower() * 0.3));
                     mobs[0].takeDamage(primary);
                     int splash = (int)(primary * 0.25);
-                    for (int i = 1; i < Math.min(3, mobs.length); i++)
-                        if (mobs[i].isAlive()) mobs[i].takeDamage(splash);
+                    for (int i = 1; i < Math.min(3, mobs.length); i++) if (mobs[i].isAlive()) mobs[i].takeDamage(splash);
                 }
                 break;
             case "Replenish": ((Mage) caster).replenish(partyArr); break;
@@ -457,10 +442,7 @@ public class GamePanel extends JPanel {
         }
         refreshStats();
         refreshMobPanel();
-
         if (party.stream().noneMatch(Hero::isAlive)) { playerDied(); return; }
-
-        // Start the next round
         if (inBattle) startNewRound();
     }
 
@@ -474,6 +456,7 @@ public class GamePanel extends JPanel {
         activeHero     = null;
         pendingActions = null;
         lblTurn.setText(" ");
+        lblQueue.setText(" ");
 
         int totalXp   = currentMobs.stream().mapToInt(Mob::getXpReward).sum();
         int totalGold = currentMobs.stream().mapToInt(Mob::getGoldReward).sum();
@@ -500,8 +483,7 @@ public class GamePanel extends JPanel {
         if (isPvP) {
             isPvP = false;
             log("=== " + pvpPlayer1Name + " wins the PvP battle! ===");
-            if (pvpResultCallback != null)
-                pvpResultCallback.accept(pvpPlayer1Name, pvpPlayer2Name);
+            if (pvpResultCallback != null) pvpResultCallback.accept(pvpPlayer1Name, pvpPlayer2Name);
             return true;
         }
 
@@ -515,12 +497,12 @@ public class GamePanel extends JPanel {
         activeHero     = null;
         pendingActions = null;
         lblTurn.setText(" ");
+        lblQueue.setText(" ");
 
         if (isPvP) {
             isPvP = false;
             log("=== " + pvpPlayer2Name + " wins the PvP battle! ===");
-            if (pvpResultCallback != null)
-                pvpResultCallback.accept(pvpPlayer2Name, pvpPlayer1Name);
+            if (pvpResultCallback != null) pvpResultCallback.accept(pvpPlayer2Name, pvpPlayer1Name);
             roomContext.setState(new DefeatedState());
             return;
         }
@@ -534,13 +516,76 @@ public class GamePanel extends JPanel {
         JOptionPane.showMessageDialog(this, "Defeated! Lost " + lostGold + " gold.", "Defeated", JOptionPane.WARNING_MESSAGE);
     }
 
+    // ── Party / Inventory View ────────────────────────────────
+
+    private void showPartyView() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("=== PARTY ===\n");
+        for (Hero h : party) {
+            sb.append(String.format("%-20s [%s Lv%d]\n", h.getName(), h.getClassName(), h.getLevel()));
+            sb.append(String.format("  HP: %d/%d  MP: %d/%d  ATK: %d  DEF: %d\n",
+                    (int)h.getHp(), (int)h.getMaxHp(), h.getMana(), h.getMaxMana(), h.getAttack(), h.getDefense()));
+            sb.append(String.format("  XP: %d | To next level: %s\n",
+                    h.getExperience(),
+                    h.getLevel() < 20 ? String.valueOf(h.expNeededForLevel(h.getLevel() + 1) - h.getExperience()) : "MAX"));
+            if (!h.isAlive()) sb.append("  *** DEAD ***\n");
+            sb.append("\n");
+        }
+        sb.append("=== INVENTORY ===\n");
+        boolean hasItems = false;
+        for (Map.Entry<String, Integer> e : inventory.entrySet()) {
+            if (e.getValue() > 0) { sb.append("  ").append(e.getKey()).append(" x").append(e.getValue()).append("\n"); hasItems = true; }
+        }
+        if (!hasItems) sb.append("  (empty)\n");
+        sb.append("\nGold: ").append(gold);
+
+        JTextArea area = new JTextArea(sb.toString());
+        area.setEditable(false);
+        area.setFont(new Font("Monospaced", Font.PLAIN, 12));
+        JScrollPane scroll = new JScrollPane(area);
+        scroll.setPreferredSize(new Dimension(400, 350));
+        JOptionPane.showMessageDialog(this, scroll, "Party & Inventory", JOptionPane.PLAIN_MESSAGE);
+    }
+
+    // ── Exit Campaign ─────────────────────────────────────────
+
+    private void exitCampaign() {
+        if (inBattle) {
+            JOptionPane.showMessageDialog(this, "You cannot exit during a battle!", "Exit", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        int confirm = JOptionPane.showConfirmDialog(this,
+                "Exit the campaign? Your progress will be saved.", "Exit Campaign", JOptionPane.YES_NO_OPTION);
+        if (confirm != JOptionPane.YES_OPTION) return;
+        saveProgress();
+        log("--- Campaign saved. Returning to menu. ---");
+        cl.show(container, "Menu");
+    }
+
     // ── Inn ───────────────────────────────────────────────────
 
     private void visitInn() {
         inBattle = false;
-        for (Hero h : party) h.fullRestore();
-        log("--- You found an Inn! All party members fully restored. ---");
+
+        // Per-hero restoration message (UC4)
+        StringBuilder innMsg = new StringBuilder("<html><b>Inn visit — party restored:</b><br>");
+        for (Hero h : party) {
+            double missingHp   = h.getMaxHp()   - h.getHp();
+            int    missingMana = h.getMaxMana()  - h.getMana();
+            boolean wasDead    = !h.isAlive();
+            h.fullRestore();
+            if (wasDead) {
+                innMsg.append(h.getName()).append(" was <b>revived</b> and fully restored.<br>");
+            } else {
+                innMsg.append(h.getName()).append(": +").append((int)missingHp)
+                        .append(" HP, +").append(missingMana).append(" Mana<br>");
+            }
+        }
+        innMsg.append("</html>");
+        JOptionPane.showMessageDialog(this, innMsg.toString(), "Inn", JOptionPane.INFORMATION_MESSAGE);
+        log("--- Inn: all party members restored. ---");
         refreshStats();
+
         if (currentRoom <= 10 && party.size() < 5) offerRecruitment();
         showInnShop();
         roomContext.setState(new InnState());
@@ -568,28 +613,26 @@ public class GamePanel extends JPanel {
         refreshStats();
     }
 
-    // Item definitions: name -> [cost, hp, mana, fullRestore]
     private static final Object[][] ITEM_DEFS = {
-            {"Bread",  200,  20,   0,  false},
-            {"Cheese", 500,  50,   0,  false},
-            {"Steak",  1000, 200,  0,  false},
-            {"Water",  150,  0,    10, false},
-            {"Juice",  400,  0,    30, false},
-            {"Wine",   750,  0,    100,false},
-            {"Elixir", 2000, 0,    0,  true },
+            {"Bread",  200,  20,   0,   false},
+            {"Cheese", 500,  50,   0,   false},
+            {"Steak",  1000, 200,  0,   false},
+            {"Water",  150,  0,    10,  false},
+            {"Juice",  400,  0,    30,  false},
+            {"Wine",   750,  0,    100, false},
+            {"Elixir", 2000, 0,    0,   true },
     };
 
     private void showInnShop() {
         while (true) {
-            // Build shop display with costs and current stock
             String[] options = new String[ITEM_DEFS.length + 1];
             for (int i = 0; i < ITEM_DEFS.length; i++) {
-                String name = (String) ITEM_DEFS[i][0];
-                int cost    = (int)    ITEM_DEFS[i][1];
-                int hp      = (int)    ITEM_DEFS[i][2];
-                int mana    = (int)    ITEM_DEFS[i][3];
-                boolean full= (boolean)ITEM_DEFS[i][4];
-                int qty     = inventory.getOrDefault(name, 0);
+                String name  = (String)  ITEM_DEFS[i][0];
+                int cost     = (int)     ITEM_DEFS[i][1];
+                int hp       = (int)     ITEM_DEFS[i][2];
+                int mana     = (int)     ITEM_DEFS[i][3];
+                boolean full = (boolean) ITEM_DEFS[i][4];
+                int qty      = inventory.getOrDefault(name, 0);
                 String effect = full ? "Full restore" : (hp > 0 ? "+" + hp + " HP" : "") + (mana > 0 ? " +" + mana + " MP" : "");
                 options[i] = name + " - " + cost + "g (" + effect + ") [owned: " + qty + "]";
             }
@@ -598,10 +641,8 @@ public class GamePanel extends JPanel {
             String pick = (String) JOptionPane.showInputDialog(this,
                     "Gold: " + gold + "  |  Inventory: " + inventorySummary(),
                     "Inn Shop", JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
-
             if (pick == null || pick.startsWith("Leave")) break;
 
-            // Find which item was picked
             for (Object[] def : ITEM_DEFS) {
                 if (pick.startsWith((String) def[0])) {
                     int cost = (int) def[1];
@@ -621,34 +662,23 @@ public class GamePanel extends JPanel {
         refreshStats();
     }
 
-    /** Use items from inventory between battles */
     public void useItems() {
-        if (inBattle) {
-            JOptionPane.showMessageDialog(this, "Can't use items during battle!", "Items", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
+        if (inBattle) { JOptionPane.showMessageDialog(this, "Can't use items during battle!", "Items", JOptionPane.WARNING_MESSAGE); return; }
         if (inventory.isEmpty() || inventory.values().stream().allMatch(q -> q == 0)) {
-            JOptionPane.showMessageDialog(this, "Your inventory is empty!", "Items", JOptionPane.INFORMATION_MESSAGE);
-            return;
+            JOptionPane.showMessageDialog(this, "Your inventory is empty!", "Items", JOptionPane.INFORMATION_MESSAGE); return;
         }
-
         while (true) {
-            // Build inventory list
             List<String> available = new ArrayList<>();
-            for (Map.Entry<String, Integer> e : inventory.entrySet()) {
+            for (Map.Entry<String, Integer> e : inventory.entrySet())
                 if (e.getValue() > 0) available.add(e.getKey() + " x" + e.getValue());
-            }
             if (available.isEmpty()) break;
             available.add("Close");
 
-            String pick = (String) JOptionPane.showInputDialog(this,
-                    "Select item to use:", "Inventory",
+            String pick = (String) JOptionPane.showInputDialog(this, "Select item to use:", "Inventory",
                     JOptionPane.PLAIN_MESSAGE, null, available.toArray(), available.get(0));
             if (pick == null || pick.equals("Close")) break;
 
             String itemName = pick.split(" x")[0];
-
-            // Pick target hero
             String[] heroNames = party.stream().map(Hero::getName).toArray(String[]::new);
             String targetName = (String) JOptionPane.showInputDialog(this,
                     "Use " + itemName + " on which hero?", "Use Item",
@@ -656,18 +686,11 @@ public class GamePanel extends JPanel {
             if (targetName == null) continue;
 
             Hero target = party.stream().filter(h -> h.getName().equals(targetName)).findFirst().orElse(hero);
-
-            // Apply effect
             for (Object[] def : ITEM_DEFS) {
                 if (def[0].equals(itemName)) {
-                    int hp      = (int)    def[2];
-                    int mana    = (int)    def[3];
-                    boolean full= (boolean)def[4];
-                    if (full)       target.fullRestore();
-                    else {
-                        if (hp   > 0) target.heal(hp);
-                        if (mana > 0) target.restoreMana(mana);
-                    }
+                    int hp = (int) def[2]; int mana = (int) def[3]; boolean full = (boolean) def[4];
+                    if (full) target.fullRestore();
+                    else { if (hp > 0) target.heal(hp); if (mana > 0) target.restoreMana(mana); }
                     inventory.put(itemName, inventory.get(itemName) - 1);
                     log(target.getName() + " used " + itemName + "!");
                     refreshStats();
@@ -685,11 +708,6 @@ public class GamePanel extends JPanel {
                 .collect(Collectors.joining(", "));
     }
 
-    private void buyItem(int cost, Runnable effect) {
-        if (gold >= cost) { gold -= cost; effect.run(); log("Purchased item for " + cost + "g."); refreshStats(); }
-        else JOptionPane.showMessageDialog(this, "Not enough gold!", "Shop", JOptionPane.WARNING_MESSAGE);
-    }
-
     // ── End Campaign ──────────────────────────────────────────
 
     private void endCampaign() {
@@ -698,10 +716,20 @@ public class GamePanel extends JPanel {
         log("=== Campaign Complete! Final Score: " + score + " ===");
         roomContext.setState(new ResolvingState());
         DatabaseManager.getInstance().saveScore(currentUser[0], score);
+
+        // Offer to save party for PvP (up to 5 slots handled in DB)
+        int savePvp = JOptionPane.showConfirmDialog(this,
+                "Campaign complete! Score: " + score + "\n\nSave your party for PvP battles?",
+                "Campaign Over", JOptionPane.YES_NO_OPTION);
+        if (savePvp == JOptionPane.YES_OPTION) {
+            DatabaseManager.getInstance().saveParty(currentUser[0], party, gold, currentRoom);
+            JOptionPane.showMessageDialog(this, "Party saved! You can use it in PvP battles.", "Saved", JOptionPane.INFORMATION_MESSAGE);
+        }
+
         JOptionPane.showMessageDialog(this,
-                "Campaign complete!\nFinal Score: " + score + "\nGold: " + gold
+                "Final Score: " + score + "\nGold: " + gold
                         + "\nParty size: " + party.size() + "\nTotal levels: " + totalLevels,
-                "Game Over", JOptionPane.INFORMATION_MESSAGE);
+                "Campaign Complete", JOptionPane.INFORMATION_MESSAGE);
         cl.show(container, "Menu");
     }
 
@@ -740,20 +768,27 @@ public class GamePanel extends JPanel {
     private void refreshMobPanel() {
         mobPanel.removeAll();
         for (Mob mob : currentMobs) {
-            String label = (mob instanceof PvPMob)
-                    ? ((PvPMob) mob).getHero().getName() + " [" + ((PvPMob) mob).getHero().getClassName() + "]"
-                    : "Enemy";
+            String label, details;
+            if (mob instanceof PvPMob) {
+                Hero h = ((PvPMob) mob).getHero();
+                label   = h.getName() + " [" + h.getClassName() + " Lv" + h.getLevel() + "]";
+                details = "HP:" + (int)mob.getHp() + " ATK:" + h.getAttack() + " DEF:" + h.getDefense();
+            } else {
+                int mobLevel = (int)((mob.getPower() - 3) / 2);
+                label   = "Enemy (Lv" + mobLevel + ")";
+                details = "HP:" + (int)mob.getHp() + " ATK:" + (int)mob.getPower();
+            }
             String txt = mob.isAlive()
-                    ? "<html>" + label + "<br>HP: " + (int)mob.getHp() + "</html>"
-                    : "<html><strike>" + label + "</strike><br>Defeated</html>";
+                    ? "<html><center>" + label + "<br>" + details + "</center></html>"
+                    : "<html><center><strike>" + label + "</strike><br>Defeated</center></html>";
             JLabel lbl = new JLabel(txt, SwingConstants.CENTER);
             lbl.setBorder(BorderFactory.createLineBorder(mob.isAlive() ? Color.RED : Color.GRAY));
-            lbl.setPreferredSize(new Dimension(100, 60));
+            lbl.setPreferredSize(new Dimension(130, 65));
             mobPanel.add(lbl);
         }
         mobPanel.revalidate();
         mobPanel.repaint();
     }
 
-    // button state is now managed by RoomContext / State pattern
+    // button state managed by RoomContext / State pattern
 }
