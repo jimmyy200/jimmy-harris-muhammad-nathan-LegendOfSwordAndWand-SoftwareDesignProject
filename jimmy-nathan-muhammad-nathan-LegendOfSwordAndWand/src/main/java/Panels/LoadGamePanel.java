@@ -10,6 +10,7 @@ import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 
+// load game screen
 public class LoadGamePanel extends JPanel {
     public LoadGamePanel(JPanel container, CardLayout cl, String[] currentUser, GamePanel gamePanel) {
         setLayout(new BorderLayout(10, 10));
@@ -39,7 +40,6 @@ public class LoadGamePanel extends JPanel {
         noSaveLbl.setForeground(Color.RED);
         loadBtn.setEnabled(false);
 
-        // Hold loaded party data
         final List<Hero> loadedParty = new ArrayList<>();
         final int[] savedMeta = new int[2]; // [gold, room]
 
@@ -50,6 +50,7 @@ public class LoadGamePanel extends JPanel {
         bottomPanel.add(backBtn);
         add(bottomPanel, BorderLayout.SOUTH);
 
+        // update data when shown
         addComponentListener(new java.awt.event.ComponentAdapter() {
             @Override
             public void componentShown(java.awt.event.ComponentEvent e) {
@@ -57,7 +58,7 @@ public class LoadGamePanel extends JPanel {
                 loadBtn.setEnabled(false);
                 noSaveLbl.setText("");
 
-                // Load party members
+                // get party stats
                 ResultSet rs = DatabaseManager.getInstance().loadParty(currentUser[0]);
                 try {
                     if (rs != null) {
@@ -67,18 +68,30 @@ public class LoadGamePanel extends JPanel {
                             String heroClass = rs.getString("hero_class");
                             int    level     = rs.getInt("level");
                             double hp        = rs.getDouble("hp");
+                            double maxHp     = rs.getDouble("max_hp");
                             int    attack    = rs.getInt("attack");
                             int    defense   = rs.getInt("defense");
                             int    mana      = rs.getInt("mana");
+                            int    maxMana   = rs.getInt("max_mana");
                             int    exp       = rs.getInt("experience");
+                            int    pclLvl    = rs.getInt("primary_class_level");
+                            int    sclLvl    = rs.getInt("secondary_class_level");
+                            String secName   = rs.getString("secondary_class_name");
+                            String hybrid    = rs.getString("hybrid_class");
 
-                            Hero hero = createHero(heroClass, heroName);
+                            Hero hero = HeroFactory.getFactory(heroClass).createHero(heroName);
                             hero.setLevel(level);
+                            hero.setMaxHp(maxHp);
                             hero.changeHp(hp);
                             hero.changeAttack(attack);
                             hero.changeDefense(defense);
+                            hero.setMaxMana(maxMana);
                             hero.changeMana(mana);
-                            hero.gainExperience(exp);
+                            hero.setExperience(exp);
+                            hero.setPrimaryClassLevel(pclLvl);
+                            hero.setSecondaryClassLevel(sclLvl);
+                            if (secName != null) hero.setSecondaryClassName(secName);
+                            if (hybrid != null) hero.setHybridClass(hybrid);
                             loadedParty.add(hero);
 
                             partySummary.append(heroName).append(" [").append(heroClass)
@@ -99,7 +112,7 @@ public class LoadGamePanel extends JPanel {
                     ex.printStackTrace();
                 }
 
-                // Load gold and room from saves table
+                // load gold and room
                 ResultSet savesRs = DatabaseManager.getInstance().loadGame(currentUser[0]);
                 try {
                     if (savesRs != null && savesRs.next()) {
@@ -121,9 +134,5 @@ public class LoadGamePanel extends JPanel {
         });
 
         backBtn.addActionListener(e -> cl.show(container, "Menu"));
-    }
-
-    private Hero createHero(String heroClass, String heroName) {
-        return HeroFactory.getFactory(heroClass).createHero(heroName);
     }
 }

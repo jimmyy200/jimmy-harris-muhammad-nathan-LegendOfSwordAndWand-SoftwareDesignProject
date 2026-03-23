@@ -1,6 +1,15 @@
 package Hero;
 
-public abstract class Hero {
+import java.util.ArrayList;
+import java.util.List;
+
+import Observer.GameObserver;
+import Observer.Subject;
+import Strategy.AttackStrategy;
+import Strategy.BasicAttackStrategy;
+
+// Base class for all hero types - has stats, levelling, combat, and hybrid class system
+public abstract class Hero implements Subject {
     protected String name;
     protected int attack;
     protected int defense;
@@ -15,9 +24,16 @@ public abstract class Hero {
     protected boolean waiting;
 
     // Hybrid tracking
-    protected String hybridClass = null;  // e.g. "WARLOCK", "PALADIN", etc.
+    protected String hybridClass = null;
     protected int primaryClassLevel   = 1;
     protected int secondaryClassLevel = 0;
+    protected String secondaryClassName = null; // tracks the name of the second class
+
+    // Strategy pattern - attack behavior can be swapped
+    protected AttackStrategy attackStrategy;
+
+    // Observer pattern - notifies on level/XP changes
+    private List<GameObserver> observers = new ArrayList<>();
 
     private static final int MAX_LEVEL = 20;
 
@@ -34,9 +50,10 @@ public abstract class Hero {
         this.shieldHp = 0;
         this.stunned  = false;
         this.waiting  = false;
+        this.attackStrategy = new BasicAttackStrategy();
     }
 
-    // ── Levelling ─────────────────────────────────────────────
+    // leveling up stuff
 
     public int expNeededForLevel(int targetLevel) {
         int total = 0;
@@ -58,6 +75,7 @@ public abstract class Hero {
 
     private void levelUp() {
         level++;
+        // base stats per level
         attack  += 1;
         defense += 1;
         maxHp   += 5;
@@ -66,15 +84,13 @@ public abstract class Hero {
         hp   = maxHp;
         mana = maxMana;
         System.out.println(name + " reached level " + level + "! [" + getClassName() + "]");
+        notifyObservers();
     }
 
-    /** Subclass applies its class bonus. If hybrid, combines both class growths. */
+    // Subclass applies its class-specific bonus
     protected abstract void applyLevelUpBonus();
 
-    /**
-     * Called when player chooses to level up the secondary class.
-     * Once both primary and secondary hit level 5, hybrid is triggered.
-     */
+    // Called when player levels up the secondary class
     public void levelUpSecondaryClass() {
         secondaryClassLevel++;
         if (!isHybrid() && primaryClassLevel >= 5 && secondaryClassLevel >= 5) {
@@ -89,7 +105,7 @@ public abstract class Hero {
         }
     }
 
-    /** Subclass sets hybridClass name when conditions are met */
+    // Subclass sets hybridClass name when both classes reach 5
     protected abstract void triggerHybrid();
 
     public boolean isHybrid()         { return hybridClass != null; }
@@ -101,7 +117,7 @@ public abstract class Hero {
         return getClass().getSimpleName();
     }
 
-    // ── Combat ────────────────────────────────────────────────
+    // fighting methods
 
     public void basicAttack(Hero target) {
         int damage = Math.max(0, this.attack - target.getDefense());
@@ -137,14 +153,46 @@ public abstract class Hero {
     public void applyShield(int amount) { this.shieldHp += amount; }
     public void heal(double amount)     { this.hp = Math.min(maxHp, hp + amount); }
     public boolean isAlive()            { return hp > 0; }
-    public void fullRestore()           { hp = maxHp; mana = maxMana; }
+    public void fullRestore()           { hp = maxHp; mana = maxMana; shieldHp = 0; }
 
     public abstract void specialAttack(Hero[] targets);
 
-    // ── Getters / Setters ─────────────────────────────────────
+    // set and get attack strategies
+
+    public void setAttackStrategy(AttackStrategy strategy) {
+        this.attackStrategy = strategy;
+    }
+
+    public AttackStrategy getAttackStrategy() {
+        return attackStrategy;
+    }
+
+    // observer pattern methods
+
+    @Override
+    public void attach(GameObserver observer) {
+        if (!observers.contains(observer)) {
+            observers.add(observer);
+        }
+    }
+
+    @Override
+    public void detach(GameObserver observer) {
+        observers.remove(observer);
+    }
+
+    @Override
+    public void notifyObservers() {
+        for (GameObserver observer : observers) {
+            observer.onHeroLevelUp(name, level, getClassName());
+        }
+    }
+
+    // basic getters and setters
 
     public String  getName()       { return name; }
     public int     getAttack()     { return attack; }
+    public int     getPower()      { return attack; }  // Alias for consistency with Mob
     public int     getDefense()    { return defense; }
     public double  getHp()         { return hp; }
     public double  getMaxHp()      { return maxHp; }
@@ -160,12 +208,21 @@ public abstract class Hero {
     public void setLevel(int level)         { this.level = level; }
     public int getPrimaryClassLevel()       { return primaryClassLevel; }
     public int getSecondaryClassLevel()     { return secondaryClassLevel; }
+    public String getSecondaryClassName()   { return secondaryClassName; }
+    public void setSecondaryClassName(String name) { this.secondaryClassName = name; }
+    public void setPrimaryClassLevel(int lvl) { this.primaryClassLevel = lvl; }
+    public void setSecondaryClassLevel(int lvl) { this.secondaryClassLevel = lvl; }
+    public void setHybridClass(String hc)   { this.hybridClass = hc; }
+    public void setExperience(int exp)      { this.experience = exp; }
+    public void setMaxHp(double mhp)        { this.maxHp = mhp; }
+    public void setMaxMana(int mm)          { this.maxMana = mm; }
 
     @Override
     public String toString() {
         return String.format("[%s | %s | Lv%d | HP: %.0f/%.0f | Mana: %d/%d | ATK: %d | DEF: %d]",
                 name, getClassName(), level, hp, maxHp, mana, maxMana, attack, defense);
     }
+
     // Additional setters needed by GamePanel
     public void changeAttack(int attack)   { this.attack = attack; }
     public void changeDefense(int defense) { this.defense = defense; }

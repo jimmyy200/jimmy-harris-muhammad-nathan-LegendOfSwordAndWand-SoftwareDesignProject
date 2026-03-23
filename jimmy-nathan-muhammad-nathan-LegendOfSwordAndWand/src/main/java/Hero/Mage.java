@@ -1,46 +1,51 @@
 package Hero;
 
+import Strategy.MageAttackStrategy;
+
+// mage class stats
 public class Mage extends Hero {
 
     public Mage(String name) {
         super(name);
-        System.out.println("Mage '" + name + "' created.");
+        this.attackStrategy = new MageAttackStrategy();
     }
 
     @Override
     protected void applyLevelUpBonus() {
-        if (isHybrid()) {
-            switch (hybridClass) {
-                case "WIZARD":  // Mage + Mage: doubled growth
-                    maxMana += 10; attack += 2; break;
-                case "PROPHET": // Mage + Order
-                    maxMana += 5; attack += 1; maxMana += 5; defense += 2; break;
-                case "SORCERER":// Mage + Chaos
-                    maxMana += 5; attack += 1; attack += 3; maxHp += 5; break;
-                case "WARLOCK": // Mage + Warrior
-                    maxMana += 5; attack += 1; attack += 2; defense += 3; break;
-            }
-        } else {
-            int multiplier = isSpecialized() ? 2 : 1;
-            maxMana += 5 * multiplier;
-            attack  += 1 * multiplier;
-        }
+        attack  += 2;
+        maxMana += 10;
+        maxHp   += 3;
     }
 
     @Override
     protected void triggerHybrid() {
-        hybridClass = "WIZARD";
-        System.out.println(name + " has specialised into WIZARD!");
-    }
-
-    public void triggerHybridWith(String otherClass) {
-        switch (otherClass) {
+        if (secondaryClassName == null) return;
+        switch (secondaryClassName.toUpperCase()) {
             case "ORDER":   hybridClass = "PROPHET";  break;
             case "CHAOS":   hybridClass = "SORCERER"; break;
             case "WARRIOR": hybridClass = "WARLOCK";  break;
-            default:        hybridClass = "WIZARD";   break;
         }
-        System.out.println(name + " has become a " + hybridClass + "!");
+        if (hybridClass != null) {
+            System.out.println(name + " has become a " + hybridClass + "!");
+        }
+    }
+
+    public void triggerHybridWith(String secondaryClass) {
+        if (isHybrid()) return;
+        if (primaryClassLevel >= 5 && secondaryClassLevel >= 5) {
+            switch (secondaryClass) {
+                case "ORDER":   hybridClass = "PROPHET";  break;
+                case "CHAOS":   hybridClass = "SORCERER"; break;
+                case "WARRIOR": hybridClass = "WARLOCK";  break;
+            }
+        }
+    }
+
+    @Override
+    public String getClassName() {
+        if (isHybrid()) return hybridClass;
+        if (isSpecialized()) return "WIZARD";
+        return "Mage";
     }
 
     @Override
@@ -48,37 +53,24 @@ public class Mage extends Hero {
         replenish(targets);
     }
 
+    // give mana back
     public void replenish(Hero[] party) {
-        // Wizard hybrid: Replenish costs only 40 mana instead of 80
-        int cost = (isHybrid() && hybridClass.equals("WIZARD")) ? 40 : 80;
-        // Prophet hybrid: doubles the effect
-        double multiplier = (isHybrid() && hybridClass.equals("PROPHET")) ? 2.0 : 1.0;
-
+        int cost = "WIZARD".equals(getClassName()) ? 40 : 80;
         if (!spendMana(cost)) return;
-        System.out.println(name + " casts Replenish!");
+        int restore = "PROPHET".equals(hybridClass) ? 60 : 30;
         for (Hero h : party) {
-            if (h != null && h.isAlive()) {
-                if (h == this) {
-                    int restore = (int) (60 * multiplier);
-                    mana = Math.min(maxMana, mana + restore);
-                    System.out.println(name + " replenishes " + restore + " mana to self.");
-                } else {
-                    int restore = (int) (30 * multiplier);
-                    h.mana = Math.min(h.maxMana, h.mana + restore);
-                    System.out.println(h.getName() + " replenishes " + restore + " mana.");
-                }
-            }
+            h.restoreMana(restore);
         }
+        System.out.println(name + " replenishes " + restore + " mana to all allies!");
     }
 
-    /**
-     * Mana Burn (Warlock hybrid): every basic attack burns 10% of the
-     * target's total mana. Called from the battle system after basicAttack().
-     */
+    // take mana from them
     public void manaBurn(Hero target) {
-        if (!isHybrid() || !hybridClass.equals("WARLOCK")) return;
-        int burn = (int) (target.getMaxMana() * 0.10);
-        target.mana = Math.max(0, target.mana - burn);
-        System.out.println(name + " burns " + burn + " mana from " + target.getName() + "!");
+        int drain = 10;
+        if (target.getMana() >= drain) {
+            target.changeMana(target.getMana() - drain);
+            restoreMana(drain);
+            System.out.println(name + " drains " + drain + " mana from " + target.getName() + "!");
+        }
     }
 }

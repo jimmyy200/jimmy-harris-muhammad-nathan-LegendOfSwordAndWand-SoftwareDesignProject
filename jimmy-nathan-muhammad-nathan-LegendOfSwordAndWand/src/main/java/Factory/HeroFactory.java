@@ -4,10 +4,10 @@ import Hero.*;
 
 public abstract class HeroFactory {
 
-    /** Factory method — subclasses decide which Hero to create */
+    // factory method to make hero
     public abstract Hero createHero(String name);
 
-    /** Convenience static method to get the right factory by class name */
+    // get factory by name
     public static HeroFactory getFactory(String heroClass) {
         switch (heroClass.toUpperCase()) {
             case "WARRIOR": return new WarriorFactory();
@@ -18,7 +18,7 @@ public abstract class HeroFactory {
         }
     }
 
-    /** Create a hero at a specific level */
+    // make hero with level
     public Hero createHeroAtLevel(String name, int targetLevel) {
         Hero hero = createHero(name);
         for (int i = 1; i < targetLevel; i++) {

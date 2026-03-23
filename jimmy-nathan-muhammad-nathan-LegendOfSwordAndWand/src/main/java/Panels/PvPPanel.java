@@ -10,6 +10,7 @@ import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
 
+// pvp screen
 public class PvPPanel extends JPanel {
 
     private final JPanel      container;
@@ -17,12 +18,10 @@ public class PvPPanel extends JPanel {
     private final String[]    currentUser;
     private final GamePanel   gamePanel;
 
-    // State
     private String       opponentUsername;
     private List<Hero>   player1Party;
     private List<Hero>   player2Party;
 
-    // ── UI ────────────────────────────────────────────────────
     private JTextField   txtOpponent;
     private JLabel       lblStatus;
     private JPanel       cardContainer;
@@ -40,7 +39,6 @@ public class PvPPanel extends JPanel {
         title.setFont(new Font("SansSerif", Font.BOLD, 20));
         add(title, BorderLayout.NORTH);
 
-        // Inner card layout for the multi-step flow
         cardCl        = new CardLayout();
         cardContainer = new JPanel(cardCl);
         cardContainer.add(buildInviteStep(),   "Invite");
@@ -55,7 +53,7 @@ public class PvPPanel extends JPanel {
         add(lblStatus, BorderLayout.SOUTH);
     }
 
-    // ── Step 1: Enter opponent username ───────────────────────
+    // step 1 enter who you wanna fight
 
     private JPanel buildInviteStep() {
         JPanel p = new JPanel(new GridBagLayout());
@@ -106,7 +104,7 @@ public class PvPPanel extends JPanel {
             return;
         }
         if (!DatabaseManager.getInstance().hasSavedParty(currentUser[0])) {
-            lblStatus.setText("You need a saved party to play PvP. Complete a PvE campaign first.");
+            lblStatus.setText("You need a saved party! Complete a PvE campaign first.");
             return;
         }
         if (!DatabaseManager.getInstance().hasSavedParty(opponentUsername)) {
@@ -114,7 +112,7 @@ public class PvPPanel extends JPanel {
             return;
         }
 
-        // Show acceptance dialog (simulated — same machine)
+        // fake accept invite
         int accept = JOptionPane.showConfirmDialog(this,
                 opponentUsername + " has been invited!\n(Simulating: does " + opponentUsername + " accept?)",
                 "PvP Invitation", JOptionPane.YES_NO_OPTION);
@@ -129,7 +127,7 @@ public class PvPPanel extends JPanel {
         cardCl.show(cardContainer, "P1Pick");
     }
 
-    // ── Step 2: Player 1 picks a party ───────────────────────
+    // step 2 player 1 picks a party
 
     private JPanel p1PickPanel;
     private JList<String> p1PartyList;
@@ -152,7 +150,7 @@ public class PvPPanel extends JPanel {
         btnConfirm.addActionListener(e -> {
             int idx = p1PartyList.getSelectedIndex();
             if (idx < 0) { lblStatus.setText("Select a party slot."); return; }
-            player1Party = loadPartySlot(currentUser[0], idx);
+            player1Party = DatabaseManager.getInstance().loadPvPParty(currentUser[0], idx);
             if (player1Party == null || player1Party.isEmpty()) {
                 lblStatus.setText("Could not load party."); return;
             }
@@ -167,11 +165,13 @@ public class PvPPanel extends JPanel {
     private void refreshP1Pick() {
         JLabel lbl = (JLabel) p1PickPanel.getClientProperty("lbl");
         lbl.setText(currentUser[0] + " — choose your party");
-        populatePartyList(p1ListModel, currentUser[0]);
-        p1PartyList.setSelectedIndex(0);
+        p1ListModel.clear();
+        List<String> summaries = DatabaseManager.getInstance().getPvPPartySlotSummaries(currentUser[0]);
+        for (String s : summaries) p1ListModel.addElement(s);
+        if (!summaries.isEmpty()) p1PartyList.setSelectedIndex(0);
     }
 
-    // ── Step 3: Player 2 picks a party ───────────────────────
+    // step 3 player 2 picks a party
 
     private JPanel p2PickPanel;
     private JList<String> p2PartyList;
@@ -194,7 +194,7 @@ public class PvPPanel extends JPanel {
         btnConfirm.addActionListener(e -> {
             int idx = p2PartyList.getSelectedIndex();
             if (idx < 0) { lblStatus.setText("Select a party slot."); return; }
-            player2Party = loadPartySlot(opponentUsername, idx);
+            player2Party = DatabaseManager.getInstance().loadPvPParty(opponentUsername, idx);
             if (player2Party == null || player2Party.isEmpty()) {
                 lblStatus.setText("Could not load party."); return;
             }
@@ -208,11 +208,13 @@ public class PvPPanel extends JPanel {
     private void refreshP2Pick() {
         JLabel lbl = (JLabel) p2PickPanel.getClientProperty("lbl");
         lbl.setText(opponentUsername + " — choose your party");
-        populatePartyList(p2ListModel, opponentUsername);
-        p2PartyList.setSelectedIndex(0);
+        p2ListModel.clear();
+        List<String> summaries = DatabaseManager.getInstance().getPvPPartySlotSummaries(opponentUsername);
+        for (String s : summaries) p2ListModel.addElement(s);
+        if (!summaries.isEmpty()) p2PartyList.setSelectedIndex(0);
     }
 
-    // ── Step 4: League standings ──────────────────────────────
+    // step 4 league rankings
 
     private JTextArea leagueArea;
 
@@ -251,14 +253,13 @@ public class PvPPanel extends JPanel {
         }
     }
 
-    // ── Battle launch ─────────────────────────────────────────
+    // launch the battle
 
     private void startPvPBattle() {
         gamePanel.startPvPBattle(
                 player1Party, currentUser[0],
                 player2Party, opponentUsername,
                 (winner, loser) -> {
-                    // Called by GamePanel when battle ends
                     DatabaseManager.getInstance().recordPvPResult(winner, loser);
                     JOptionPane.showMessageDialog(this,
                             winner + " wins the PvP battle!\nLeague standings updated.",
@@ -270,73 +271,6 @@ public class PvPPanel extends JPanel {
                 }
         );
         cl.show(container, "Game");
-    }
-
-    // ── Helpers ───────────────────────────────────────────────
-
-    /** Populate a JList with party slot summaries for a given user */
-    private void populatePartyList(DefaultListModel<String> model, String username) {
-        model.clear();
-        String query = "SELECT hero_index, hero_name, hero_class, level FROM party_saves " +
-                "WHERE username = ? ORDER BY hero_index ASC";
-        try (Connection conn = DatabaseManager.getInstance().getConnection();
-             PreparedStatement stmt = conn.prepareStatement(query)) {
-            stmt.setString(1, username);
-            ResultSet rs = stmt.executeQuery();
-
-            // Group by slot (hero_index 0 = first hero of a party)
-            // Since party_saves stores all heroes with sequential indices,
-            // we treat each unique hero_index=0 as a new party slot
-            List<StringBuilder> slots = new ArrayList<>();
-            StringBuilder current = null;
-            while (rs.next()) {
-                int idx = rs.getInt("hero_index");
-                if (idx == 0) {
-                    current = new StringBuilder("Party: ");
-                    slots.add(current);
-                }
-                if (current != null) {
-                    current.append(rs.getString("hero_name"))
-                            .append("[").append(rs.getString("hero_class"))
-                            .append(" Lv").append(rs.getInt("level")).append("] ");
-                }
-            }
-            for (int i = 0; i < slots.size(); i++) {
-                model.addElement("Slot " + (i + 1) + ": " + slots.get(i).toString().replace("Party: ", ""));
-            }
-        } catch (SQLException ex) {
-            ex.printStackTrace();
-        }
-    }
-
-    /** Load all heroes from party_saves for a user at a given slot index */
-    private List<Hero> loadPartySlot(String username, int slotIndex) {
-        List<Hero> party = new ArrayList<>();
-        String query = "SELECT hero_name, hero_class, level, hp, attack, defense, mana, experience " +
-                "FROM party_saves WHERE username = ? ORDER BY hero_index ASC";
-        try (Connection conn = DatabaseManager.getInstance().getConnection();
-             PreparedStatement stmt = conn.prepareStatement(query)) {
-            stmt.setString(1, username);
-            ResultSet rs = stmt.executeQuery();
-
-            // Since party_saves stores one continuous party (all heroes),
-            // slotIndex 0 loads all heroes in the current save
-            while (rs.next()) {
-                String heroClass = rs.getString("hero_class");
-                String heroName  = rs.getString("hero_name");
-                Hero h = HeroFactory.getFactory(heroClass).createHero(heroName);
-                h.setLevel(rs.getInt("level"));
-                h.changeHp(rs.getDouble("hp"));
-                h.changeAttack(rs.getInt("attack"));
-                h.changeDefense(rs.getInt("defense"));
-                h.changeMana(rs.getInt("mana"));
-                h.gainExperience(rs.getInt("experience"));
-                party.add(h);
-            }
-        } catch (SQLException ex) {
-            ex.printStackTrace();
-        }
-        return party;
     }
 
     private void reset() {

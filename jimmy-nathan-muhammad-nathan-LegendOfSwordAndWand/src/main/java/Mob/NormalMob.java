@@ -2,19 +2,17 @@ package Mob;
 
 import Hero.Hero;
 
+// regular enemy
 public class NormalMob extends Mob {
-    protected double spawnRate;
 
-    public NormalMob(double hp, double power, int xp, int gold, double spawnRate) {
-        super(hp, power, xp, gold);
-        this.spawnRate = spawnRate;
+    public NormalMob(double hp, double power, int defense, int level, int xp, int gold) {
+        super(hp, power, defense, level, xp, gold);
     }
-
-    public double getSpawnRate() { return spawnRate; }
 
     @Override
     public void attack(Hero target) {
-        System.out.println("NormalMob attacks for " + power + " damage!");
-        target.takeDamage(power);
+        int damage = Math.max(0, (int) power - target.getDefense());
+        System.out.println("Enemy (Lv" + level + ") attacks " + target.getName() + " for " + damage + " damage!");
+        target.takeDamage(damage);
     }
 }

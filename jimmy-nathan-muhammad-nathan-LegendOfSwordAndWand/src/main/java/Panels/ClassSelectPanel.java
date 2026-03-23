@@ -25,12 +25,12 @@ public class ClassSelectPanel extends JPanel {
     public ClassSelectPanel(JPanel container, CardLayout cl, String[] currentUser, GamePanel gamePanel) {
         setLayout(new BorderLayout(10, 10));
 
-        // ── Title ──
+        // title of the screen
         JLabel title = new JLabel("Build Your Party (1–5 Heroes)", SwingConstants.CENTER);
         title.setFont(new Font("SansSerif", Font.BOLD, 18));
         add(title, BorderLayout.NORTH);
 
-        // ── Class buttons ──
+        // buttons for picking classes
         JPanel classBox = new JPanel(new GridLayout(2, 2, 10, 10));
         classBox.setBorder(BorderFactory.createEmptyBorder(10, 20, 5, 20));
 
@@ -52,7 +52,7 @@ public class ClassSelectPanel extends JPanel {
         }
         add(classBox, BorderLayout.CENTER);
 
-        // ── Bottom: party display + buttons ──
+        // bottom part for party and buttons
         JPanel bottomPanel = new JPanel(new BorderLayout(5, 5));
         bottomPanel.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
 
@@ -72,7 +72,7 @@ public class ClassSelectPanel extends JPanel {
         bottomPanel.add(btnRow, BorderLayout.CENTER);
         add(bottomPanel, BorderLayout.SOUTH);
 
-        // ── Undo last selection ──
+        // undo button code
         undoBtn.addActionListener(e -> {
             if (!selectedClasses.isEmpty()) {
                 selectedClasses.remove(selectedClasses.size() - 1);
@@ -80,7 +80,7 @@ public class ClassSelectPanel extends JPanel {
             }
         });
 
-        // ── Start game ──
+        // start game button code
         startBtn.addActionListener(e -> {
             if (selectedClasses.isEmpty()) {
                 JOptionPane.showMessageDialog(this, "Pick at least 1 hero!", "No Heroes", JOptionPane.WARNING_MESSAGE);

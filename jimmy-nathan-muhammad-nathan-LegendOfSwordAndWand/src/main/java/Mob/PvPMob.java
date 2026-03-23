@@ -2,16 +2,14 @@ package Mob;
 
 import Hero.Hero;
 
-/**
- * Wraps an opponent Hero so it can participate in the existing Mob-based battle system.
- * Delegates damage, HP and attack to the underlying Hero.
- */
+// makes a hero fight like a monster
+// used for pvp
 public class PvPMob extends Mob {
 
     private final Hero heroRef;
 
     public PvPMob(Hero hero) {
-        super(hero.getHp(), hero.getAttack(), 0, 0);
+        super(hero.getHp(), hero.getAttack(), hero.getDefense(), hero.getLevel(), 0, 0);
         this.heroRef = hero;
     }
 
@@ -21,6 +19,10 @@ public class PvPMob extends Mob {
     public double getHp()    { return heroRef.getHp(); }
     @Override
     public double getPower() { return heroRef.getAttack(); }
+    @Override
+    public int getDefense()  { return heroRef.getDefense(); }
+    @Override
+    public int getLevel()    { return heroRef.getLevel(); }
     @Override
     public boolean isAlive() { return heroRef.isAlive(); }
 

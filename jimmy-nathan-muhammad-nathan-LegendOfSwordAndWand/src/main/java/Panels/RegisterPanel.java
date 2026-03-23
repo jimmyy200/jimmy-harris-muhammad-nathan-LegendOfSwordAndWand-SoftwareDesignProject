@@ -1,9 +1,17 @@
 package Panels;
 
-import Singleton.DatabaseManager;
+import java.awt.CardLayout;
+import java.awt.GridBagLayout;
+import java.awt.GridLayout;
 
-import javax.swing.*;
-import java.awt.*;
+import javax.swing.JButton;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JPasswordField;
+import javax.swing.JTextField;
+
+import Singleton.DatabaseManager;
 
 public class RegisterPanel extends JPanel {
     public RegisterPanel(JPanel container, CardLayout cl) {
@@ -34,6 +42,19 @@ public class RegisterPanel extends JPanel {
                 JOptionPane.showMessageDialog(this, "Please fill in all fields.", "Error", JOptionPane.WARNING_MESSAGE);
                 return;
             }
+
+            // check username
+            if (!username.matches("^[a-zA-Z0-9]+$")) {
+                JOptionPane.showMessageDialog(this, "Username must be alphanumeric only (no special characters).", "Error", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
+            // check password
+            if (!password.matches("^[a-zA-Z0-9 ]+$")) {
+                JOptionPane.showMessageDialog(this, "Password cannot contain special characters.", "Error", JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+
             if (!password.equals(confirm)) {
                 JOptionPane.showMessageDialog(this, "Passwords do not match!", "Error", JOptionPane.ERROR_MESSAGE);
                 return;

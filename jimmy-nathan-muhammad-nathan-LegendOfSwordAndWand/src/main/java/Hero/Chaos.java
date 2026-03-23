@@ -1,50 +1,51 @@
 package Hero;
 
-import java.util.Random;
+import Strategy.ChaosAttackStrategy;
 
+// chaos class stats
 public class Chaos extends Hero {
-
-    private static final Random random = new Random();
 
     public Chaos(String name) {
         super(name);
-        System.out.println("Chaos hero '" + name + "' created.");
+        this.attackStrategy = new ChaosAttackStrategy();
     }
 
     @Override
     protected void applyLevelUpBonus() {
-        if (isHybrid()) {
-            switch (hybridClass) {
-                case "INVOKER": // Chaos + Chaos: doubled growth
-                    attack += 6; maxHp += 10; break;
-                case "HERETIC": // Chaos + Order
-                    attack += 3; maxHp += 5; maxMana += 5; defense += 2; break;
-                case "ROGUE":   // Chaos + Warrior
-                    attack += 3; maxHp += 5; attack += 2; defense += 3; break;
-                case "SORCERER":// Chaos + Mage
-                    attack += 3; maxHp += 5; maxMana += 5; attack += 1; break;
-            }
-        } else {
-            int multiplier = isSpecialized() ? 2 : 1;
-            attack  += 3 * multiplier;
-            maxHp   += 5 * multiplier;
-        }
+        attack  += 3;
+        maxMana += 5;
+        maxHp   += 2;
     }
 
     @Override
     protected void triggerHybrid() {
-        hybridClass = "INVOKER";
-        System.out.println(name + " has specialised into INVOKER!");
-    }
-
-    public void triggerHybridWith(String otherClass) {
-        switch (otherClass) {
+        if (secondaryClassName == null) return;
+        switch (secondaryClassName.toUpperCase()) {
             case "ORDER":   hybridClass = "HERETIC";  break;
             case "WARRIOR": hybridClass = "ROGUE";    break;
             case "MAGE":    hybridClass = "SORCERER"; break;
-            default:        hybridClass = "INVOKER";  break;
         }
-        System.out.println(name + " has become a " + hybridClass + "!");
+        if (hybridClass != null) {
+            System.out.println(name + " has become a " + hybridClass + "!");
+        }
+    }
+
+    public void triggerHybridWith(String secondaryClass) {
+        if (isHybrid()) return;
+        if (primaryClassLevel >= 5 && secondaryClassLevel >= 5) {
+            switch (secondaryClass) {
+                case "ORDER":   hybridClass = "HERETIC";  break;
+                case "WARRIOR": hybridClass = "ROGUE";    break;
+                case "MAGE":    hybridClass = "SORCERER"; break;
+            }
+        }
+    }
+
+    @Override
+    public String getClassName() {
+        if (isHybrid()) return hybridClass;
+        if (isSpecialized()) return "INVOKER";
+        return "Chaos";
     }
 
     @Override
@@ -52,40 +53,28 @@ public class Chaos extends Hero {
         fireball(targets);
     }
 
-    public void fireball(Hero[] enemies) {
+    // shoot fireball
+    public void fireball(Hero[] targets) {
         if (!spendMana(30)) return;
-        int hits = Math.min(3, enemies.length);
-        // Sorcerer hybrid: Fireball does double damage to all affected units
-        double multiplier = (isHybrid() && hybridClass.equals("SORCERER")) ? 2.0 : 1.0;
-        System.out.println(name + " launches a Fireball!");
-        for (int i = 0; i < hits; i++) {
-            if (enemies[i] != null && enemies[i].isAlive()) {
-                int damage = (int) (Math.max(0, attack - enemies[i].getDefense()) * multiplier);
-                enemies[i].takeDamage(damage);
-            }
+        int dmg = attack;
+        if ("SORCERER".equals(hybridClass)) dmg *= 2;
+        for (int i = 0; i < Math.min(3, targets.length); i++) {
+            int finalDmg = Math.max(0, dmg - targets[i].getDefense());
+            targets[i].takeDamage(finalDmg);
         }
+        System.out.println(name + " launches Fireball!");
     }
 
-    public void chainLightning(Hero[] enemies) {
+    // zap everyone
+    public void chainLightning(Hero[] targets) {
         if (!spendMana(40)) return;
+        double dmg = attack;
+        double dropoff = "INVOKER".equals(getClassName()) ? 0.50 : 0.75;
+        for (Hero t : targets) {
+            int finalDmg = Math.max(0, (int)dmg - t.getDefense());
+            t.takeDamage(finalDmg);
+            dmg *= dropoff; // INVOKER: less drop-off (0.50 retained), others: 0.75 drop-off (0.25 retained)
+        }
         System.out.println(name + " casts Chain Lightning!");
-
-        // Invoker hybrid: each subsequent target takes 50% of previous (not 25%)
-        double dropOff = (isHybrid() && hybridClass.equals("INVOKER")) ? 0.50 : 0.25;
-
-        // Shuffle randomly
-        Hero[] shuffled = enemies.clone();
-        for (int i = shuffled.length - 1; i > 0; i--) {
-            int j = random.nextInt(i + 1);
-            Hero tmp = shuffled[i]; shuffled[i] = shuffled[j]; shuffled[j] = tmp;
-        }
-
-        double currentDamage = Math.max(0, attack - shuffled[0].getDefense());
-        for (Hero target : shuffled) {
-            if (target != null && target.isAlive()) {
-                target.takeDamage(currentDamage);
-                currentDamage *= dropOff;
-            }
-        }
     }
 }
