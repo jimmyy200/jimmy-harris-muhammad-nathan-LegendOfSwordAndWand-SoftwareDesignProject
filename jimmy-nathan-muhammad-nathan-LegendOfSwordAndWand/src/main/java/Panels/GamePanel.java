@@ -50,6 +50,12 @@ public class GamePanel extends JPanel implements GameObserver {
     private List<Hero> pvpPlayer2Party;
     private java.util.function.BiConsumer<String, String> pvpResultCallback;
 
+    // pvp turn tracking
+    private boolean pvpPlayer2Turn = false;
+    private List<Runnable> pvpPlayer2Actions;
+    private Queue<Hero>    pvpPlayer2TurnQueue;
+    private List<Hero>     pvpPlayer2WaitQueue;
+
     // ui elements
     private JLabel    lblRoom, lblGold, lblHeroStats, lblTurn, lblQueue;
     private JTextArea logArea;
@@ -320,6 +326,12 @@ public class GamePanel extends JPanel implements GameObserver {
     private void startNewRound() {
         pendingActions = new ArrayList<>();
         waitQueue      = new ArrayList<>();
+        pvpPlayer2Turn = false;
+
+        if (isPvP) {
+            pvpPlayer2Actions = new ArrayList<>();
+            pvpPlayer2WaitQueue = new ArrayList<>();
+        }
 
         // build turn order: sort heroes by level desc, then attack desc
         List<Hero> sortedHeroes = party.stream()
@@ -338,40 +350,67 @@ public class GamePanel extends JPanel implements GameObserver {
             }
         }
 
+        if (isPvP) {
+            for (Hero h : pvpPlayer2Party) {
+                if (h.isStunned()) {
+                    h.setStunned(false);
+                }
+            }
+
+            List<Hero> p2Sorted = pvpPlayer2Party.stream()
+                    .filter(h -> h.isAlive() && !h.isStunned())
+                    .sorted((a, b) -> {
+                        if (b.getLevel() != a.getLevel()) return b.getLevel() - a.getLevel();
+                        return b.getAttack() - a.getAttack();
+                    })
+                    .collect(Collectors.toList());
+            pvpPlayer2TurnQueue = new LinkedList<>(p2Sorted);
+        }
+
         turnQueue = new LinkedList<>(sortedHeroes);
 
-        log("--- New round. Turn order: " + sortedHeroes.stream()
-                .map(Hero::getName).collect(Collectors.joining(" -> ")) + " ---");
+        log("--- New round. ---");
         promptNextHero();
     }
 
     private void promptNextHero() {
-        if (turnQueue.isEmpty()) {
-            // process waiting heroes in FIFO order
-            if (!waitQueue.isEmpty()) {
-                Hero waiter = waitQueue.remove(0);
-                activeHero = waiter;
-                lblTurn.setText("▶ " + waiter.getName() + "'s turn (waited)");
-                lblQueue.setText("Remaining waiters: " + (waitQueue.isEmpty() ? "none" :
-                        waitQueue.stream().map(Hero::getName).collect(Collectors.joining(" -> "))));
-                roomContext.setState(new BattleState());
-                refreshStats();
+        if (!pvpPlayer2Turn) {
+            if (turnQueue.isEmpty()) {
+                // process waiting heroes in FIFO order
+                if (!waitQueue.isEmpty()) {
+                    activeHero = waitQueue.remove(0);
+                    lblTurn.setText(activeHero.getName() + "'s turn (waited)");
+                    roomContext.setState(new BattleState());
+                    refreshStats();
+                    return;
+                }
+                if (isPvP) {
+                    pvpPlayer2Turn = true;
+                    log("--- " + pvpPlayer2Name + "'s Turn ---");
+                    promptNextHero();
+                    return;
+                }
+                resolveRound();
                 return;
             }
-            resolveRound();
-            return;
-        }
-        activeHero = turnQueue.poll();
-        lblTurn.setText("▶ " + activeHero.getName() + "'s turn (" + activeHero.getClassName() + ")");
-        String remaining = turnQueue.isEmpty() ? ""
-                : turnQueue.stream().map(Hero::getName).collect(Collectors.joining(" -> "));
-        String waiting = waitQueue.isEmpty() ? ""
-                : " -> " + waitQueue.stream().map(Hero::getName).collect(Collectors.joining(" -> "));
-        if (turnQueue.isEmpty() && waitQueue.isEmpty()) {
-            lblQueue.setText("Up next: none");
+            activeHero = turnQueue.poll();
+            lblTurn.setText(activeHero.getName() + "'s turn (" + activeHero.getClassName() + ")");
         } else {
-            lblQueue.setText("Up next: " + remaining + waiting);
+            if (pvpPlayer2TurnQueue.isEmpty()) {
+                if (!pvpPlayer2WaitQueue.isEmpty()) {
+                    activeHero = pvpPlayer2WaitQueue.remove(0);
+                    lblTurn.setText(activeHero.getName() + "'s turn (waited)");
+                    roomContext.setState(new BattleState());
+                    refreshStats();
+                    return;
+                }
+                resolveRound();
+                return;
+            }
+            activeHero = pvpPlayer2TurnQueue.poll();
+            lblTurn.setText(activeHero.getName() + "'s turn (" + activeHero.getClassName() + ")");
         }
+
         roomContext.setState(new BattleState());
         refreshStats();
     }
@@ -381,65 +420,77 @@ public class GamePanel extends JPanel implements GameObserver {
     private void queueAttack() {
         if (activeHero == null) return;
         final Hero attacker = activeHero;
+        final boolean actingAsP2 = isPvP && pvpPlayer2Turn;
 
         // let player pick a target
-        List<String> targets = new ArrayList<>();
-        for (int i = 0; i < currentMobs.size(); i++) {
-            Mob m = currentMobs.get(i);
-            if (m.isAlive()) {
-                if (m instanceof PvPMob) {
-                    targets.add(((PvPMob) m).getHero().getName());
-                } else {
-                    targets.add("Enemy " + (i + 1) + " (Lv" + m.getLevel() + ")");
+        List<String> names = new ArrayList<>();
+        List<Object> targets = new ArrayList<>();
+
+        if (actingAsP2) {
+            for (Hero h : party) {
+                if (h.isAlive()) {
+                    names.add(h.getName());
+                    targets.add(h);
+                }
+            }
+        } else {
+            for (int i = 0; i < currentMobs.size(); i++) {
+                Mob m = currentMobs.get(i);
+                if (m.isAlive()) {
+                    if (m instanceof PvPMob) {
+                        names.add(((PvPMob) m).getHero().getName());
+                    } else {
+                        names.add("Enemy " + (i + 1) + " (Lv" + m.getLevel() + ")");
+                    }
+                    targets.add(m);
                 }
             }
         }
-        if (targets.isEmpty()) return;
 
-        String chosen = null;
-        if (targets.size() == 1) {
-            chosen = targets.get(0);
-        } else {
-            chosen = (String) JOptionPane.showInputDialog(
-                    this, "Choose target for " + attacker.getName() + ":", "Attack Target",
-                    JOptionPane.PLAIN_MESSAGE, null, targets.toArray(), targets.get(0));
-        }
+        if (names.isEmpty()) return;
+
+        String chosen = (String) JOptionPane.showInputDialog(
+                this, "Choose target for " + attacker.getName() + ":", "Attack Target",
+                JOptionPane.PLAIN_MESSAGE, null, names.toArray(), names.get(0));
+
         if (chosen == null) return;
 
-        final int targetIdx = targets.indexOf(chosen);
-        final List<Mob> livingMobs = currentMobs.stream().filter(Mob::isAlive).collect(Collectors.toList());
+        final Object targetRef = targets.get(names.indexOf(chosen));
 
-        pendingActions.add(() -> {
-            if (targetIdx >= 0 && targetIdx < livingMobs.size()) {
-                Mob target = livingMobs.get(targetIdx);
-                if (target.isAlive()) {
-                    // damage math
-                    int damage = Math.max(0, attacker.getAttack() - target.getDefense());
-                    target.takeDamage(damage);
-                    log(attacker.getName() + " attacks for " + damage + " damage!");
+        Runnable action = () -> {
+            if (targetRef instanceof Hero) {
+                Hero targetHero = (Hero) targetRef;
+                int damage = Math.max(0, attacker.getAttack() - targetHero.getDefense());
+                targetHero.takeDamage(damage);
+                log(attacker.getName() + " attacks " + targetHero.getName() + " for " + damage + " damage!");
+            } else if (targetRef instanceof Mob) {
+                Mob targetMob = (Mob) targetRef;
+                int damage = Math.max(0, attacker.getAttack() - targetMob.getDefense());
+                targetMob.takeDamage(damage);
+                log(attacker.getName() + " attacks for " + damage + " damage!");
 
-                    // extra hit chance for rogue
-                    if (attacker instanceof Warrior && attacker.isHybrid()
-                            && "ROGUE".equals(attacker.getHybridClass())) {
-                        if (random.nextBoolean()) {
-                            List<Mob> alive = currentMobs.stream().filter(Mob::isAlive).collect(Collectors.toList());
-                            if (!alive.isEmpty()) {
-                                Mob bonusTarget = alive.get(random.nextInt(alive.size()));
-                                int bonusDmg = (int)(Math.max(0, attacker.getAttack() - bonusTarget.getDefense()) * 0.5);
-                                bonusTarget.takeDamage(bonusDmg);
-                                log("Sneak Attack! Bonus hit for " + bonusDmg + "!");
-                            }
+                if (attacker instanceof Warrior && attacker.isHybrid()
+                        && "ROGUE".equals(attacker.getHybridClass())) {
+                    if (random.nextBoolean()) {
+                        List<Mob> alive = currentMobs.stream().filter(Mob::isAlive).collect(Collectors.toList());
+                        if (!alive.isEmpty()) {
+                            Mob bonusTarget = alive.get(random.nextInt(alive.size()));
+                            int bonusDmg = (int)(Math.max(0, attacker.getAttack() - bonusTarget.getDefense()) * 0.5);
+                            bonusTarget.takeDamage(bonusDmg);
+                            log("Sneak Attack! Bonus hit for " + bonusDmg + "!");
                         }
                     }
-
-                    // mana burn for warlock
-                    if (attacker instanceof Mage && attacker.isHybrid()
-                            && "WARLOCK".equals(attacker.getHybridClass()) && target instanceof PvPMob) {
-                        ((Mage) attacker).manaBurn(((PvPMob) target).getHero());
-                    }
+                }
+                if (attacker instanceof Mage && attacker.isHybrid()
+                        && "WARLOCK".equals(attacker.getHybridClass()) && targetMob instanceof PvPMob) {
+                    ((Mage) attacker).manaBurn(((PvPMob) targetMob).getHero());
                 }
             }
-        });
+        };
+
+        if (actingAsP2) pvpPlayer2Actions.add(action);
+        else pendingActions.add(action);
+
         log(activeHero.getName() + " chose: Attack");
         activeHero = null;
         promptNextHero();
@@ -448,10 +499,16 @@ public class GamePanel extends JPanel implements GameObserver {
     private void queueDefend() {
         if (activeHero == null) return;
         final Hero defender = activeHero;
-        pendingActions.add(() -> {
+        final boolean actingAsP2 = isPvP && pvpPlayer2Turn;
+
+        Runnable action = () -> {
             defender.defend();
             log(defender.getName() + " defends. +10 HP, +5 Mana.");
-        });
+        };
+
+        if (actingAsP2) pvpPlayer2Actions.add(action);
+        else pendingActions.add(action);
+
         log(activeHero.getName() + " chose: Defend");
         activeHero = null;
         promptNextHero();
@@ -460,7 +517,8 @@ public class GamePanel extends JPanel implements GameObserver {
     private void queueWait() {
         if (activeHero == null) return;
         log(activeHero.getName() + " chose: Wait (acts at end of round)");
-        waitQueue.add(activeHero);
+        if (isPvP && pvpPlayer2Turn) pvpPlayer2WaitQueue.add(activeHero);
+        else waitQueue.add(activeHero);
         activeHero = null;
         promptNextHero();
     }
@@ -485,8 +543,30 @@ public class GamePanel extends JPanel implements GameObserver {
 
         final Hero caster      = activeHero;
         final String spell     = chosen;
-        final Hero[] partySnap = party.toArray(new Hero[0]);
-        pendingActions.add(() -> castSpell(caster, spell, partySnap, currentMobs.toArray(new Mob[0])));
+        final boolean actingAsP2 = isPvP && pvpPlayer2Turn;
+
+        final List<Hero> friends = actingAsP2 ? pvpPlayer2Party : party;
+        final List<Hero> enemies = actingAsP2 ? party : pvpPlayer2Party;
+
+        Runnable action = () -> {
+            Hero[] friendlyArray = friends.stream()
+                    .filter(Hero::isAlive)
+                    .toArray(n -> new Hero[n]);
+            Mob[] enemyMobs;
+            if (isPvP) {
+                enemyMobs = new Mob[enemies.size()];
+                for (int i = 0; i < enemies.size(); i++) {
+                    enemyMobs[i] = new PvPMob(enemies.get(i));
+                }
+            } else {
+                enemyMobs = currentMobs.toArray(new Mob[0]);
+            }
+            castSpell(caster, spell, friendlyArray, enemyMobs);
+        };
+
+        if (actingAsP2) pvpPlayer2Actions.add(action);
+        else pendingActions.add(action);
+
         log(activeHero.getName() + " chose: " + spell);
         activeHero = null;
         promptNextHero();
@@ -499,14 +579,23 @@ public class GamePanel extends JPanel implements GameObserver {
         lblTurn.setText("Resolving round...");
         lblQueue.setText(" ");
 
-        log("=== Heroes act ===");
+        log("=== Turn 1 Actions ===");
         for (Runnable action : pendingActions) action.run();
         refreshStats();
         refreshMobPanel();
         if (checkBattleEnd()) return;
 
-        log("=== Enemies act ===");
-        mobsTurn();
+        if (isPvP) {
+            log("=== Turn 2 Actions ===");
+            for (Runnable action : pvpPlayer2Actions) action.run();
+            refreshStats();
+            refreshMobPanel();
+            if (checkBattleEnd()) return;
+            startNewRound();
+        } else {
+            log("=== Enemies act ===");
+            mobsTurn();
+        }
     }
 
     private void castSpell(Hero caster, String spell, Hero[] partyArr, Mob[] mobs) {
@@ -616,6 +705,20 @@ public class GamePanel extends JPanel implements GameObserver {
     // battle ending logic
 
     private boolean checkBattleEnd() {
+        if (isPvP) {
+            boolean p1Dead = party.stream().noneMatch(Hero::isAlive);
+            boolean p2Dead = pvpPlayer2Party.stream().noneMatch(Hero::isAlive);
+
+            if (!p1Dead && !p2Dead) return false;
+
+            inBattle = false;
+            String winner = p2Dead ? pvpPlayer1Name : pvpPlayer2Name;
+            log("=== " + winner + " wins the PvP battle! ===");
+            roomContext.setState(new VictoryState());
+            if (pvpResultCallback != null) pvpResultCallback.accept(winner, p2Dead ? pvpPlayer2Name : pvpPlayer1Name);
+            return true;
+        }
+
         if (currentMobs.stream().anyMatch(Mob::isAlive)) return false;
 
         inBattle       = false;
@@ -625,15 +728,6 @@ public class GamePanel extends JPanel implements GameObserver {
         waitQueue      = null;
         lblTurn.setText(" ");
         lblQueue.setText(" ");
-
-        // PvP: no XP or gold gained
-        if (isPvP) {
-            isPvP = false;
-            log("=== " + pvpPlayer1Name + " wins the PvP battle! ===");
-            roomContext.setState(new VictoryState());
-            if (pvpResultCallback != null) pvpResultCallback.accept(pvpPlayer1Name, pvpPlayer2Name);
-            return true;
-        }
 
         // PvE: calculate rewards
         int totalXp   = currentMobs.stream().mapToInt(Mob::getXpReward).sum();
@@ -729,7 +823,6 @@ public class GamePanel extends JPanel implements GameObserver {
         lblQueue.setText(" ");
 
         if (isPvP) {
-            isPvP = false;
             log("=== " + pvpPlayer2Name + " wins the PvP battle! ===");
             if (pvpResultCallback != null) pvpResultCallback.accept(pvpPlayer2Name, pvpPlayer1Name);
             roomContext.setState(new DefeatedState());
