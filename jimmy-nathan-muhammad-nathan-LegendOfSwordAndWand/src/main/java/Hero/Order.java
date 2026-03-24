@@ -76,11 +76,26 @@ public class Order extends Hero {
     // heal the party
     public void heal(Hero[] party) {
         if (!spendMana(35)) return;
-        int healAmt = "PRIEST".equals(getClassName()) ? 50 : 30;
-        if ("PROPHET".equals(hybridClass)) healAmt *= 2;
-        for (Hero h : party) {
-            h.heal(healAmt);
+        boolean healsAll = "PRIEST".equals(getClassName()) || "PROPHET".equals(hybridClass);
+        double multiplier = "PROPHET".equals(hybridClass) ? 0.50 : 0.25;
+        if (healsAll) {
+            for (Hero h : party) {
+                double healAmt = h.getMaxHp() * multiplier;
+                h.heal(healAmt);
+            }
+            System.out.println(name + " heals the entire party!");
+        } else {
+            Hero lowest = null;
+            for (Hero h : party) {
+                if (h.isAlive() && (lowest == null || h.getHp() < lowest.getHp())) {
+                    lowest = h;
+                }
+            }
+            if (lowest != null) {
+                double healAmt = lowest.getMaxHp() * multiplier;
+                lowest.heal(healAmt);
+                System.out.println(name + " heals " + lowest.getName() + " for " + (int)healAmt + " HP!");
+            }
         }
-        System.out.println(name + " heals the party for " + healAmt + " HP each!");
     }
 }
