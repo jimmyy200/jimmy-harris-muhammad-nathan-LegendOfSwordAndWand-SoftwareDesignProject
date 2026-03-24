@@ -363,9 +363,11 @@ public class GamePanel extends JPanel implements GameObserver {
         }
         activeHero = turnQueue.poll();
         lblTurn.setText("▶ " + activeHero.getName() + "'s turn (" + activeHero.getClassName() + ")");
-        String remaining = turnQueue.isEmpty() ? "none"
+        String remaining = turnQueue.isEmpty() ? ""
                 : turnQueue.stream().map(Hero::getName).collect(Collectors.joining(" -> "));
-        lblQueue.setText("Up next: " + remaining);
+        String waiting = waitQueue.isEmpty() ? ""
+                : " -> " + waitQueue.stream().map(Hero::getName).collect(Collectors.joining(" -> "));
+        lblQueue.setText("Up next: " + remaining + waiting);
         roomContext.setState(new BattleState());
         refreshStats();
     }
