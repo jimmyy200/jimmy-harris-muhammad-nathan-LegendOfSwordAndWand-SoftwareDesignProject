@@ -293,9 +293,9 @@ public class GamePanel extends JPanel implements GameObserver {
         for (int i = 0; i < numMobs; i++) {
             int lvl = mobLevels[i];
             // scale stats based on level
-            double mobHp  = 80 + lvl * 15;
+            double mobHp  = 15 + lvl * 10;
             int power     = 4 + lvl * 2;
-            int mobDef    = 2 + lvl;
+            int mobDef    = 1 + lvl;
             int xp        = 50 * lvl;
             int g         = 75 * lvl;
             currentMobs.add(new NormalMob(mobHp, power, mobDef, lvl, xp, g));
@@ -367,7 +367,11 @@ public class GamePanel extends JPanel implements GameObserver {
                 : turnQueue.stream().map(Hero::getName).collect(Collectors.joining(" -> "));
         String waiting = waitQueue.isEmpty() ? ""
                 : " -> " + waitQueue.stream().map(Hero::getName).collect(Collectors.joining(" -> "));
-        lblQueue.setText("Up next: " + remaining + waiting);
+        if (turnQueue.isEmpty() && waitQueue.isEmpty()) {
+            lblQueue.setText("Up next: none");
+        } else {
+            lblQueue.setText("Up next: " + remaining + waiting);
+        }
         roomContext.setState(new BattleState());
         refreshStats();
     }
