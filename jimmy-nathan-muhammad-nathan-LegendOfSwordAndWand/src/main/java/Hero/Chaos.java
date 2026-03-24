@@ -69,11 +69,11 @@ public class Chaos extends Hero {
     public void chainLightning(Hero[] targets) {
         if (!spendMana(40)) return;
         double dmg = attack;
-        double dropoff = "INVOKER".equals(getClassName()) ? 0.50 : 0.75;
+        double dropoff = "INVOKER".equals(getClassName()) ? 0.50 : 0.25;
         for (Hero t : targets) {
             int finalDmg = Math.max(0, (int)dmg - t.getDefense());
             t.takeDamage(finalDmg);
-            dmg *= dropoff; // INVOKER: less drop-off (0.50 retained), others: 0.75 drop-off (0.25 retained)
+            dmg *= dropoff; // INVOKER: 50% retained per hit, others: 25% retained per hit
         }
         System.out.println(name + " casts Chain Lightning!");
     }
