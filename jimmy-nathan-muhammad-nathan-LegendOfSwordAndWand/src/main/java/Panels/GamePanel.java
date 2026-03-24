@@ -301,7 +301,7 @@ public class GamePanel extends JPanel implements GameObserver {
             // scale stats based on level
             double mobHp  = 15 + lvl * 10;
             int power     = 4 + lvl * 2;
-            int mobDef    = 1 + lvl;
+            int mobDef    = lvl-1;
             int xp        = 50 * lvl;
             int g         = 75 * lvl;
             currentMobs.add(new NormalMob(mobHp, power, mobDef, lvl, xp, g));
