@@ -685,6 +685,7 @@ public class GamePanel extends JPanel implements GameObserver {
             if (action == 0) {
                 Hero target = living.get(random.nextInt(living.size()));
                 mob.attack(target);
+                log("Enemy attacks " + target);
                 if (!target.isAlive()) {
                     gameSubject.notifyHeroDefeated(target.getName());
                     living.remove(target);
