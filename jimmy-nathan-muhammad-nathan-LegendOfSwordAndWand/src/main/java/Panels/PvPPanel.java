@@ -99,15 +99,15 @@ public class PvPPanel extends JPanel {
             lblStatus.setText("You cannot invite yourself.");
             return;
         }
-        if (!DatabaseManager.getInstance().userExists(opponentUsername)) {
+        if (!DatabaseManager.getInstance().auth.userExists(opponentUsername)) {
             lblStatus.setText("User '" + opponentUsername + "' does not exist.");
             return;
         }
-        if (!DatabaseManager.getInstance().hasSavedParty(currentUser[0])) {
+        if (!DatabaseManager.getInstance().pvp.hasSavedParty(currentUser[0])) {
             lblStatus.setText("You need a saved party! Complete a PvE campaign first.");
             return;
         }
-        if (!DatabaseManager.getInstance().hasSavedParty(opponentUsername)) {
+        if (!DatabaseManager.getInstance().pvp.hasSavedParty(opponentUsername)) {
             lblStatus.setText(opponentUsername + " has no saved party.");
             return;
         }
@@ -150,7 +150,7 @@ public class PvPPanel extends JPanel {
         btnConfirm.addActionListener(e -> {
             int idx = p1PartyList.getSelectedIndex();
             if (idx < 0) { lblStatus.setText("Select a party slot."); return; }
-            player1Party = DatabaseManager.getInstance().loadPvPParty(currentUser[0], idx);
+            player1Party = DatabaseManager.getInstance().pvp.loadPvPParty(currentUser[0], idx);
             if (player1Party == null || player1Party.isEmpty()) {
                 lblStatus.setText("Could not load party."); return;
             }
@@ -166,7 +166,7 @@ public class PvPPanel extends JPanel {
         JLabel lbl = (JLabel) p1PickPanel.getClientProperty("lbl");
         lbl.setText(currentUser[0] + " — choose your party");
         p1ListModel.clear();
-        List<String> summaries = DatabaseManager.getInstance().getPvPPartySlotSummaries(currentUser[0]);
+        List<String> summaries = DatabaseManager.getInstance().pvp.getPvPPartySlotSummaries(currentUser[0]);
         for (String s : summaries) p1ListModel.addElement(s);
         if (!summaries.isEmpty()) p1PartyList.setSelectedIndex(0);
     }
@@ -194,7 +194,7 @@ public class PvPPanel extends JPanel {
         btnConfirm.addActionListener(e -> {
             int idx = p2PartyList.getSelectedIndex();
             if (idx < 0) { lblStatus.setText("Select a party slot."); return; }
-            player2Party = DatabaseManager.getInstance().loadPvPParty(opponentUsername, idx);
+            player2Party = DatabaseManager.getInstance().pvp.loadPvPParty(opponentUsername, idx);
             if (player2Party == null || player2Party.isEmpty()) {
                 lblStatus.setText("Could not load party."); return;
             }
@@ -209,7 +209,7 @@ public class PvPPanel extends JPanel {
         JLabel lbl = (JLabel) p2PickPanel.getClientProperty("lbl");
         lbl.setText(opponentUsername + " — choose your party");
         p2ListModel.clear();
-        List<String> summaries = DatabaseManager.getInstance().getPvPPartySlotSummaries(opponentUsername);
+        List<String> summaries = DatabaseManager.getInstance().pvp.getPvPPartySlotSummaries(opponentUsername);
         for (String s : summaries) p2ListModel.addElement(s);
         if (!summaries.isEmpty()) p2PartyList.setSelectedIndex(0);
     }
@@ -238,7 +238,7 @@ public class PvPPanel extends JPanel {
     private void refreshLeague() {
         leagueArea.setText(String.format("%-20s %5s %5s%n", "Username", "Wins", "Losses"));
         leagueArea.append("-".repeat(32) + "\n");
-        ResultSet rs = DatabaseManager.getInstance().getLeagueStandings();
+        ResultSet rs = DatabaseManager.getInstance().pvp.getLeagueStandings();
         try {
             if (rs != null) {
                 while (rs.next()) {
@@ -260,7 +260,7 @@ public class PvPPanel extends JPanel {
                 player1Party, currentUser[0],
                 player2Party, opponentUsername,
                 (winner, loser) -> {
-                    DatabaseManager.getInstance().recordPvPResult(winner, loser);
+                    DatabaseManager.getInstance().pvp.recordPvPResult(winner, loser);
                     JOptionPane.showMessageDialog(this,
                             winner + " wins the PvP battle!\nLeague standings updated.",
                             "PvP Result", JOptionPane.INFORMATION_MESSAGE);

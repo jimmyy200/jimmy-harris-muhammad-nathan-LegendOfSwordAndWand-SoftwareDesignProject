@@ -39,7 +39,7 @@ public class HallOfFamePanel extends JPanel {
     private void refreshLeaderboard() {
         leaderboardArea.setText(String.format("%-5s %-20s %10s%n", "Rank", "Username", "Score"));
         leaderboardArea.append("-".repeat(37) + "\n");
-        ResultSet rs = DatabaseManager.getInstance().getHallOfFame();
+        ResultSet rs = DatabaseManager.getInstance().save.getHallOfFame();
         try {
             int rank = 1;
             if (rs != null) {

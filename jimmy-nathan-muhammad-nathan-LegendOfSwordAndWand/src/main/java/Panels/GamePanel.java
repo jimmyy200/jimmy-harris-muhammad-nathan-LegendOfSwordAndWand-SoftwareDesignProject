@@ -7,7 +7,6 @@ import Observer.GameObserver;
 import Observer.GameSubject;
 import Singleton.DatabaseManager;
 import State.*;
-import Strategy.*;
 
 import javax.swing.*;
 import java.awt.*;
@@ -224,7 +223,7 @@ public class GamePanel extends JPanel implements GameObserver {
         gold        = savedGold;
         currentRoom = savedRoom;
         // load inventory from DB
-        inventory = DatabaseManager.getInstance().loadInventory(currentUser[0]);
+        inventory = DatabaseManager.getInstance().save.loadInventory(currentUser[0]);
         logArea.setText("");
         log("=== Save Loaded! Party: " + party.stream()
                 .map(h -> h.getName() + " (" + h.getClassName() + ")")
@@ -1074,24 +1073,24 @@ public class GamePanel extends JPanel implements GameObserver {
         int score = totalLevels * 100 + gold * 10 + itemScore;
         log("=== Campaign Complete! Final Score: " + score + " ===");
         roomContext.setState(new ResolvingState());
-        DatabaseManager.getInstance().saveScore(currentUser[0], score);
+        DatabaseManager.getInstance().save.saveScore(currentUser[0], score);
 
         // offer to save party for PvP (up to 5 slots)
-        int existingSlots = DatabaseManager.getInstance().countPvPParties(currentUser[0]);
+        int existingSlots = DatabaseManager.getInstance().pvp.countPvPParties(currentUser[0]);
         if (existingSlots >= 5) {
             int replace = JOptionPane.showConfirmDialog(this,
                     "You already have 5 saved parties. Replace one to save this party for PvP?",
                     "Party Full", JOptionPane.YES_NO_OPTION);
             if (replace == JOptionPane.YES_OPTION) {
-                java.util.List<String> slots = DatabaseManager.getInstance().getPvPPartySlotSummaries(currentUser[0]);
+                java.util.List<String> slots = DatabaseManager.getInstance().pvp.getPvPPartySlotSummaries(currentUser[0]);
                 String[] slotArr = slots.toArray(new String[0]);
                 String pick = (String) JOptionPane.showInputDialog(this,
                         "Choose a party slot to replace:", "Replace Party",
                         JOptionPane.PLAIN_MESSAGE, null, slotArr, slotArr[0]);
                 if (pick != null) {
                     int slotId = Integer.parseInt(pick.split(":")[0].replace("Slot ", "").trim()) - 1;
-                    DatabaseManager.getInstance().deletePvPParty(currentUser[0], slotId);
-                    DatabaseManager.getInstance().savePvPParty(currentUser[0], slotId, party);
+                    DatabaseManager.getInstance().pvp.deletePvPParty(currentUser[0], slotId);
+                    DatabaseManager.getInstance().pvp.savePvPParty(currentUser[0], slotId, party);
                     JOptionPane.showMessageDialog(this, "Party saved to PvP slot " + (slotId + 1) + "!",
                             "Saved", JOptionPane.INFORMATION_MESSAGE);
                 }
@@ -1101,7 +1100,7 @@ public class GamePanel extends JPanel implements GameObserver {
                     "Campaign complete! Score: " + score + "\n\nSave your party for PvP battles?",
                     "Campaign Over", JOptionPane.YES_NO_OPTION);
             if (savePvp == JOptionPane.YES_OPTION) {
-                DatabaseManager.getInstance().savePvPParty(currentUser[0], existingSlots, party);
+                DatabaseManager.getInstance().pvp.savePvPParty(currentUser[0], existingSlots, party);
                 JOptionPane.showMessageDialog(this, "Party saved to PvP slot " + (existingSlots + 1) + "!",
                         "Saved", JOptionPane.INFORMATION_MESSAGE);
             }
@@ -1118,8 +1117,8 @@ public class GamePanel extends JPanel implements GameObserver {
     // helper methods
 
     private void saveProgress() {
-        DatabaseManager.getInstance().saveParty(currentUser[0], party, gold, currentRoom);
-        DatabaseManager.getInstance().saveInventory(currentUser[0], inventory);
+        DatabaseManager.getInstance().save.saveParty(currentUser[0], party, gold, currentRoom);
+        DatabaseManager.getInstance().save.saveInventory(currentUser[0], inventory);
     }
 
     private void log(String msg) {

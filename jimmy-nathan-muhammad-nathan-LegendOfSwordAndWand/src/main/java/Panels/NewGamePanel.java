@@ -32,7 +32,7 @@ public class NewGamePanel extends JPanel {
                     "Are you sure? This will overwrite your current save.",
                     "New Game", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
             if (choice == JOptionPane.YES_OPTION) {
-                if (DatabaseManager.getInstance().saveGame(currentUser[0])) {
+                if (DatabaseManager.getInstance().save.saveGame(currentUser[0])) {
                     JOptionPane.showMessageDialog(this, "New game started!", "Success", JOptionPane.INFORMATION_MESSAGE);
                     cl.show(container, "Menu");
                 }

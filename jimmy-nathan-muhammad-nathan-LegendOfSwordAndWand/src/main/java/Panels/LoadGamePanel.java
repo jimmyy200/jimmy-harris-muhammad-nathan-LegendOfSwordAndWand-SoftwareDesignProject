@@ -59,7 +59,7 @@ public class LoadGamePanel extends JPanel {
                 noSaveLbl.setText("");
 
                 // get party stats
-                ResultSet rs = DatabaseManager.getInstance().loadParty(currentUser[0]);
+                ResultSet rs = DatabaseManager.getInstance().save.loadParty(currentUser[0]);
                 try {
                     if (rs != null) {
                         StringBuilder partySummary = new StringBuilder("<html>");
@@ -113,7 +113,7 @@ public class LoadGamePanel extends JPanel {
                 }
 
                 // load gold and room
-                ResultSet savesRs = DatabaseManager.getInstance().loadGame(currentUser[0]);
+                ResultSet savesRs = DatabaseManager.getInstance().save.loadGame(currentUser[0]);
                 try {
                     if (savesRs != null && savesRs.next()) {
                         savedMeta[0] = savesRs.getInt("gold");

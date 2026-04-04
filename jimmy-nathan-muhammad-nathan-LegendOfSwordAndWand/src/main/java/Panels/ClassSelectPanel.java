@@ -86,8 +86,8 @@ public class ClassSelectPanel extends JPanel {
                 JOptionPane.showMessageDialog(this, "Pick at least 1 hero!", "No Heroes", JOptionPane.WARNING_MESSAGE);
                 return;
             }
-            DatabaseManager.getInstance().saveClass(currentUser[0], selectedClasses.get(0));
-            DatabaseManager.getInstance().saveGame(currentUser[0]);
+            DatabaseManager.getInstance().auth.saveClass(currentUser[0], selectedClasses.get(0));
+            DatabaseManager.getInstance().save.saveGame(currentUser[0]);
 
             // Build party list and pass to GamePanel
             List<Hero> party = new ArrayList<>();

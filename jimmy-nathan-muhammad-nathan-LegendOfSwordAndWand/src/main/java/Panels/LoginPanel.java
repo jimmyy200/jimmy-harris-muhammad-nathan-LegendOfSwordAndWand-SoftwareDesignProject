@@ -31,7 +31,7 @@ public class LoginPanel extends JPanel {
                 return;
             }
 
-            if (DatabaseManager.getInstance().validateLogin(username, password)) {
+            if (DatabaseManager.getInstance().auth.validateLogin(username, password)) {
                 currentUser[0] = username;
                 cl.show(container, "Menu");
                 passField.setText("");

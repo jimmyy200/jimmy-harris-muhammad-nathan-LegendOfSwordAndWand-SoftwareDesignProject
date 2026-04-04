@@ -1,0 +1,175 @@
+package Singleton;
+
+import java.sql.*;
+import java.util.*;
+import Hero.Hero;
+
+public class SaveRepository {
+    private final DatabaseManager db;
+
+    public SaveRepository(DatabaseManager db) {
+        this.db = db;
+    }
+
+    public boolean saveGame(String username) {
+        String query = "INSERT INTO saves (username, level, hp, power, defense, speed, gold, room) " +
+                "VALUES (?, 1, 100.0, 5, 5, 50, 0, '0') " +
+                "ON DUPLICATE KEY UPDATE level=1, hp=100.0, power=5, defense=5, speed=50, gold=0, room='0'";
+        try (Connection conn = db.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+            stmt.setString(1, username);
+            stmt.executeUpdate();
+            return true;
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+            return false;
+        }
+    }
+
+    public ResultSet loadGame(String username) {
+        String query = "SELECT s.level, s.hp, s.power, s.defense, s.speed, s.gold, s.room, u.class " +
+                "FROM saves s JOIN users u ON s.username = u.username WHERE s.username = ?";
+        try {
+            Connection conn = db.getConnection();
+            PreparedStatement stmt = conn.prepareStatement(query);
+            stmt.setString(1, username);
+            return stmt.executeQuery();
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+            return null;
+        }
+    }
+
+    public boolean saveParty(String username, List<Hero> party, int gold, int room) {
+        String deleteQuery = "DELETE FROM party_saves WHERE username = ?";
+        String insertQuery = "INSERT INTO party_saves (username, hero_index, hero_name, hero_class, " +
+                "level, hp, max_hp, attack, defense, mana, max_mana, experience, " +
+                "primary_class_level, secondary_class_level, secondary_class_name, hybrid_class) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        String updateSaveQuery = "UPDATE saves SET gold=?, room=? WHERE username=?";
+        try (Connection conn = db.getConnection()) {
+            try (PreparedStatement del = conn.prepareStatement(deleteQuery)) {
+                del.setString(1, username);
+                del.executeUpdate();
+            }
+            try (PreparedStatement ins = conn.prepareStatement(insertQuery)) {
+                for (int i = 0; i < party.size(); i++) {
+                    Hero h = party.get(i);
+                    ins.setString(1, username);
+                    ins.setInt(2, i);
+                    ins.setString(3, h.getName());
+                    ins.setString(4, h.getClass().getSimpleName());
+                    ins.setInt(5, h.getLevel());
+                    ins.setDouble(6, h.getHp());
+                    ins.setDouble(7, h.getMaxHp());
+                    ins.setInt(8, h.getAttack());
+                    ins.setInt(9, h.getDefense());
+                    ins.setInt(10, h.getMana());
+                    ins.setInt(11, h.getMaxMana());
+                    ins.setInt(12, h.getExperience());
+                    ins.setInt(13, h.getPrimaryClassLevel());
+                    ins.setInt(14, h.getSecondaryClassLevel());
+                    ins.setString(15, h.getSecondaryClassName());
+                    ins.setString(16, h.getHybridClass());
+                    ins.addBatch();
+                }
+                ins.executeBatch();
+            }
+            try (PreparedStatement upd = conn.prepareStatement(updateSaveQuery)) {
+                upd.setInt(1, gold);
+                upd.setString(2, String.valueOf(room));
+                upd.setString(3, username);
+                upd.executeUpdate();
+            }
+            return true;
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+            return false;
+        }
+    }
+
+    public ResultSet loadParty(String username) {
+        String query = "SELECT hero_index, hero_name, hero_class, level, hp, max_hp, " +
+                "attack, defense, mana, max_mana, experience, " +
+                "primary_class_level, secondary_class_level, secondary_class_name, hybrid_class " +
+                "FROM party_saves WHERE username = ? ORDER BY hero_index ASC";
+        try {
+            Connection conn = db.getConnection();
+            PreparedStatement stmt = conn.prepareStatement(query);
+            stmt.setString(1, username);
+            return stmt.executeQuery();
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+            return null;
+        }
+    }
+
+    public boolean saveInventory(String username, Map<String, Integer> inventory) {
+        String deleteQuery = "DELETE FROM inventory WHERE username = ?";
+        String insertQuery = "INSERT INTO inventory (username, item_name, quantity) VALUES (?, ?, ?)";
+        try (Connection conn = db.getConnection()) {
+            try (PreparedStatement del = conn.prepareStatement(deleteQuery)) {
+                del.setString(1, username);
+                del.executeUpdate();
+            }
+            try (PreparedStatement ins = conn.prepareStatement(insertQuery)) {
+                for (Map.Entry<String, Integer> entry : inventory.entrySet()) {
+                    if (entry.getValue() > 0) {
+                        ins.setString(1, username);
+                        ins.setString(2, entry.getKey());
+                        ins.setInt(3, entry.getValue());
+                        ins.addBatch();
+                    }
+                }
+                ins.executeBatch();
+            }
+            return true;
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+            return false;
+        }
+    }
+
+    public Map<String, Integer> loadInventory(String username) {
+        Map<String, Integer> inv = new LinkedHashMap<>();
+        String query = "SELECT item_name, quantity FROM inventory WHERE username = ?";
+        try (Connection conn = db.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+            stmt.setString(1, username);
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                inv.put(rs.getString("item_name"), rs.getInt("quantity"));
+            }
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+        }
+        return inv;
+    }
+
+    public boolean saveScore(String username, int score) {
+        String query = "INSERT INTO hall_of_fame (username, score) VALUES (?, ?) " +
+                "ON DUPLICATE KEY UPDATE score = GREATEST(score, ?)";
+        try (Connection conn = db.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+            stmt.setString(1, username);
+            stmt.setInt(2, score);
+            stmt.setInt(3, score);
+            stmt.executeUpdate();
+            return true;
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+            return false;
+        }
+    }
+
+    public ResultSet getHallOfFame() {
+        String query = "SELECT username, score FROM hall_of_fame ORDER BY score DESC";
+        try {
+            Connection conn = db.getConnection();
+            return conn.prepareStatement(query).executeQuery();
+        } catch (SQLException ex) {
+            ex.printStackTrace();
+            return null;
+        }
+    }
+}

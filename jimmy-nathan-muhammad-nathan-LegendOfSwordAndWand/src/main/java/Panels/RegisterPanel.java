@@ -60,7 +60,7 @@ public class RegisterPanel extends JPanel {
                 return;
             }
 
-            boolean success = DatabaseManager.getInstance().registerUser(username, password);
+            boolean success = DatabaseManager.getInstance().auth.registerUser(username, password);
             if (success) {
                 JOptionPane.showMessageDialog(this, "Account created! You can now log in.", "Success", JOptionPane.INFORMATION_MESSAGE);
                 userField.setText(""); passField.setText(""); confirmField.setText("");
