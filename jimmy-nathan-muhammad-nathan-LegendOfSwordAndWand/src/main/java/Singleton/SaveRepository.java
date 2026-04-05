@@ -40,52 +40,49 @@ public class SaveRepository {
         }
     }
 
+    public void bindHeroToStatement(PreparedStatement ins, Hero h, int startIndex) throws SQLException {
+        ins.setString(startIndex, h.getName());
+        ins.setString(startIndex + 1, h.getClass().getSimpleName());
+        ins.setInt(startIndex + 2, h.getLevel());
+        ins.setDouble(startIndex + 3, h.getHp());
+        ins.setDouble(startIndex + 4, h.getMaxHp());
+        ins.setInt(startIndex + 5, h.getAttack());
+        ins.setInt(startIndex + 6, h.getDefense());
+        ins.setInt(startIndex + 7, h.getMana());
+        ins.setInt(startIndex + 8, h.getMaxMana());
+        ins.setInt(startIndex + 9, h.getExperience());
+        ins.setInt(startIndex + 10, h.getPrimaryClassLevel());
+        ins.setInt(startIndex + 11, h.getSecondaryClassLevel());
+        ins.setString(startIndex + 12, h.getSecondaryClassName());
+        ins.setString(startIndex + 13, h.getHybridClass());
+    }
+
     public boolean saveParty(String username, List<Hero> party, int gold, int room) {
-        String deleteQuery = "DELETE FROM party_saves WHERE username = ?";
-        String insertQuery = "INSERT INTO party_saves (username, hero_index, hero_name, hero_class, " +
-                "level, hp, max_hp, attack, defense, mana, max_mana, experience, " +
-                "primary_class_level, secondary_class_level, secondary_class_name, hybrid_class) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
-        String updateSaveQuery = "UPDATE saves SET gold=?, room=? WHERE username=?";
+        String delete = "DELETE FROM party_saves WHERE username = ?";
+        String insert = "INSERT INTO party_saves (username, hero_index, hero_name, hero_class, level, hp, max_hp, attack, defense, mana, max_mana, experience, primary_class_level, secondary_class_level, secondary_class_name, hybrid_class) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
         try (Connection conn = db.getConnection()) {
-            try (PreparedStatement del = conn.prepareStatement(deleteQuery)) {
+            try (PreparedStatement del = conn.prepareStatement(delete)) {
                 del.setString(1, username);
                 del.executeUpdate();
             }
-            try (PreparedStatement ins = conn.prepareStatement(insertQuery)) {
+            try (PreparedStatement ins = conn.prepareStatement(insert)) {
                 for (int i = 0; i < party.size(); i++) {
-                    Hero h = party.get(i);
                     ins.setString(1, username);
                     ins.setInt(2, i);
-                    ins.setString(3, h.getName());
-                    ins.setString(4, h.getClass().getSimpleName());
-                    ins.setInt(5, h.getLevel());
-                    ins.setDouble(6, h.getHp());
-                    ins.setDouble(7, h.getMaxHp());
-                    ins.setInt(8, h.getAttack());
-                    ins.setInt(9, h.getDefense());
-                    ins.setInt(10, h.getMana());
-                    ins.setInt(11, h.getMaxMana());
-                    ins.setInt(12, h.getExperience());
-                    ins.setInt(13, h.getPrimaryClassLevel());
-                    ins.setInt(14, h.getSecondaryClassLevel());
-                    ins.setString(15, h.getSecondaryClassName());
-                    ins.setString(16, h.getHybridClass());
+                    bindHeroToStatement(ins, party.get(i), 3); // Starts at index 3
                     ins.addBatch();
                 }
                 ins.executeBatch();
             }
-            try (PreparedStatement upd = conn.prepareStatement(updateSaveQuery)) {
+            try (PreparedStatement upd = conn.prepareStatement("UPDATE saves SET gold=?, room=? WHERE username=?")) {
                 upd.setInt(1, gold);
                 upd.setString(2, String.valueOf(room));
                 upd.setString(3, username);
                 upd.executeUpdate();
             }
             return true;
-        } catch (SQLException ex) {
-            ex.printStackTrace();
-            return false;
-        }
+        } catch (SQLException ex) { ex.printStackTrace(); return false; }
     }
 
     public ResultSet loadParty(String username) {

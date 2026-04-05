@@ -26,46 +26,27 @@ public class PvPRepository {
     }
 
     public boolean savePvPParty(String username, int slotId, List<Hero> party) {
-        String deleteQuery = "DELETE FROM pvp_parties WHERE username = ? AND slot_id = ?";
-        String insertQuery = "INSERT INTO pvp_parties (username, slot_id, hero_index, hero_name, hero_class, " +
-                "level, hp, max_hp, attack, defense, mana, max_mana, experience, " +
-                "primary_class_level, secondary_class_level, secondary_class_name, hybrid_class) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        String delete = "DELETE FROM pvp_parties WHERE username = ? AND slot_id = ?";
+        String insert = "INSERT INTO pvp_parties (username, slot_id, hero_index, hero_name, hero_class, level, hp, max_hp, attack, defense, mana, max_mana, experience, primary_class_level, secondary_class_level, secondary_class_name, hybrid_class) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
         try (Connection conn = db.getConnection()) {
-            try (PreparedStatement del = conn.prepareStatement(deleteQuery)) {
+            try (PreparedStatement del = conn.prepareStatement(delete)) {
                 del.setString(1, username);
                 del.setInt(2, slotId);
                 del.executeUpdate();
             }
-            try (PreparedStatement ins = conn.prepareStatement(insertQuery)) {
+            try (PreparedStatement ins = conn.prepareStatement(insert)) {
                 for (int i = 0; i < party.size(); i++) {
-                    Hero h = party.get(i);
                     ins.setString(1, username);
                     ins.setInt(2, slotId);
                     ins.setInt(3, i);
-                    ins.setString(4, h.getName());
-                    ins.setString(5, h.getClass().getSimpleName());
-                    ins.setInt(6, h.getLevel());
-                    ins.setDouble(7, h.getHp());
-                    ins.setDouble(8, h.getMaxHp());
-                    ins.setInt(9, h.getAttack());
-                    ins.setInt(10, h.getDefense());
-                    ins.setInt(11, h.getMana());
-                    ins.setInt(12, h.getMaxMana());
-                    ins.setInt(13, h.getExperience());
-                    ins.setInt(14, h.getPrimaryClassLevel());
-                    ins.setInt(15, h.getSecondaryClassLevel());
-                    ins.setString(16, h.getSecondaryClassName());
-                    ins.setString(17, h.getHybridClass());
+                    DatabaseManager.getInstance().save.bindHeroToStatement(ins, party.get(i), 4); // Starts at index 4
                     ins.addBatch();
                 }
                 ins.executeBatch();
             }
             return true;
-        } catch (SQLException ex) {
-            ex.printStackTrace();
-            return false;
-        }
+        } catch (SQLException ex) { ex.printStackTrace(); return false; }
     }
 
     public List<Hero> loadPvPParty(String username, int slotId) {

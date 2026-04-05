@@ -14,52 +14,46 @@ import java.util.*;
 import java.util.List;
 import java.util.stream.*;
 
-// main game screen
+/**
+ * Refactored GamePanel — God Class Refactoring (#1):
+ * Previously WMC=228, CBO=63, ATFD=17. Battle logic moved to BattleManager,
+ * inn logic moved to InnManager. GamePanel now only handles:
+ * - UI construction and display
+ * - Room navigation and encounter rolls
+ * - Delegating to BattleManager and InnManager
+ * - Saving/loading
+ */
 public class GamePanel extends JPanel implements GameObserver {
 
     private static final int TOTAL_ROOMS = 30;
     private static final Random random = new Random();
 
-    // game state variables
-    private List<Hero> party;
-    private int        gold;
-    private int        currentRoom;
-    private List<Mob>  currentMobs;
-    private boolean    inBattle;
-
-    // inventory variables
+    // game state
+    private List<Hero>           party;
+    private int                  gold;
+    private int                  currentRoom;
     private Map<String, Integer> inventory = new LinkedHashMap<>();
 
-    // keeping track of turns
-    private Queue<Hero>    turnQueue;
-    private Hero           activeHero;
-    private List<Runnable> pendingActions;
-    private List<Hero>     waitQueue; // line for waiting heroes
+    // delegated managers
+    private BattleManager battleManager;
+    private InnManager    innManager;
 
-    // state design pattern
-    private RoomContext roomContext;
-
-    // observer pattern setup
+    // observer
     private GameSubject gameSubject;
 
-    // pvp state
+    // pvp state (held here so startPvPBattle can pass to BattleManager)
     private boolean isPvP = false;
     private String  pvpPlayer1Name;
     private String  pvpPlayer2Name;
-    private List<Hero> pvpPlayer2Party;
-    private java.util.function.BiConsumer<String, String> pvpResultCallback;
-
-    // pvp turn tracking
-    private boolean pvpPlayer2Turn = false;
-    private List<Runnable> pvpPlayer2Actions;
-    private Queue<Hero>    pvpPlayer2TurnQueue;
-    private List<Hero>     pvpPlayer2WaitQueue;
 
     // ui elements
-    private JLabel    lblRoom, lblGold, lblHeroStats, lblTurn, lblQueue;
+    private JLabel    lblRoom, lblGold, lblHeroStats, lblTurn;
     private JTextArea logArea;
     private JButton   btnAttack, btnDefend, btnWait, btnCast, btnNextRoom, btnUseItems, btnParty, btnExit;
     private JPanel    mobPanel;
+    private Hero      activeHero; // tracked only for UI highlight
+    private RoomContext roomContext;
+
     private final String[]   currentUser;
     private final JPanel     container;
     private final CardLayout cl;
@@ -72,34 +66,19 @@ public class GamePanel extends JPanel implements GameObserver {
         this.gameSubject.addObserver(this);
         setLayout(new BorderLayout(5, 5));
         buildUI();
+        initManagers();
     }
 
-    // callbacks for observer
+    // ── Observer callbacks ────────────────────────────────────
 
-    @Override
-    public void onHeroLevelUp(String heroName, int newLevel, String className) {
-        log(heroName + " levelled up to Lv" + newLevel + "! [" + className + "]");
-    }
+    @Override public void onHeroLevelUp(String n, int lv, String cls) { log(n + " levelled up to Lv" + lv + "! [" + cls + "]"); }
+    @Override public void onHeroDefeated(String n)                    { log(n + " has been defeated!"); }
+    @Override public void onGoldChanged(int g)                        { lblGold.setText("Gold: " + g); }
+    @Override public void onExperienceGained(String n, int xp)       { log(n + " gained " + xp + " XP."); }
 
-    @Override
-    public void onHeroDefeated(String heroName) {
-        log(heroName + " has been defeated!");
-    }
-
-    @Override
-    public void onGoldChanged(int newGold) {
-        lblGold.setText("Gold: " + newGold);
-    }
-
-    @Override
-    public void onExperienceGained(String heroName, int xpGained) {
-        log(heroName + " gained " + xpGained + " XP.");
-    }
-
-    // building the screen
+    // ── UI Construction ───────────────────────────────────────
 
     private void buildUI() {
-        // stats room and gold
         JPanel topPanel = new JPanel(new GridLayout(1, 3, 5, 0));
         topPanel.setBorder(BorderFactory.createEmptyBorder(4, 8, 4, 8));
         lblHeroStats = new JLabel("", SwingConstants.LEFT);
@@ -110,7 +89,6 @@ public class GamePanel extends JPanel implements GameObserver {
         topPanel.add(lblGold);
         add(topPanel, BorderLayout.NORTH);
 
-        // enemies and text
         JPanel centerPanel = new JPanel(new BorderLayout(5, 5));
         mobPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 5));
         mobPanel.setBorder(BorderFactory.createTitledBorder("Enemies"));
@@ -124,19 +102,11 @@ public class GamePanel extends JPanel implements GameObserver {
         centerPanel.add(new JScrollPane(logArea), BorderLayout.CENTER);
         add(centerPanel, BorderLayout.CENTER);
 
-        // buttons and stuff
         JPanel bottomPanel = new JPanel(new BorderLayout());
-
-        JPanel turnPanel = new JPanel(new GridLayout(2, 1));
-        lblTurn  = new JLabel(" ", SwingConstants.CENTER);
+        lblTurn = new JLabel(" ", SwingConstants.CENTER);
         lblTurn.setFont(new Font("SansSerif", Font.BOLD, 13));
         lblTurn.setForeground(new Color(0, 100, 0));
-        lblQueue = new JLabel(" ", SwingConstants.CENTER);
-        lblQueue.setFont(new Font("SansSerif", Font.PLAIN, 11));
-        lblQueue.setForeground(Color.DARK_GRAY);
-        turnPanel.add(lblTurn);
-        turnPanel.add(lblQueue);
-        bottomPanel.add(turnPanel, BorderLayout.NORTH);
+        bottomPanel.add(lblTurn, BorderLayout.NORTH);
 
         JPanel actionPanel = new JPanel(new FlowLayout());
         btnAttack   = new JButton("Attack");
@@ -158,12 +128,12 @@ public class GamePanel extends JPanel implements GameObserver {
         bottomPanel.add(actionPanel, BorderLayout.CENTER);
         add(bottomPanel, BorderLayout.SOUTH);
 
-        btnAttack.addActionListener(e   -> queueAttack());
-        btnDefend.addActionListener(e   -> queueDefend());
-        btnWait.addActionListener(e     -> queueWait());
-        btnCast.addActionListener(e     -> queueCast());
+        btnAttack.addActionListener(e   -> handleAttack());
+        btnDefend.addActionListener(e   -> handleDefend());
+        btnWait.addActionListener(e     -> handleWait());
+        btnCast.addActionListener(e     -> handleCast());
         btnNextRoom.addActionListener(e -> enterNextRoom());
-        btnUseItems.addActionListener(e -> useItems());
+        btnUseItems.addActionListener(e -> handleUseItems());
         btnParty.addActionListener(e    -> showPartyView());
         btnExit.addActionListener(e     -> exitCampaign());
 
@@ -171,37 +141,42 @@ public class GamePanel extends JPanel implements GameObserver {
         roomContext.setState(new InnState());
     }
 
-    // initial setup and loading
+    /** Initialise BattleManager and InnManager with lambda callbacks into this panel. */
+    private void initManagers() {
+        battleManager = new BattleManager(
+                gameSubject,
+                this::log,
+                this::refreshStats,
+                this::refreshMobPanel,
+                h -> { this.activeHero = h; },
+                lblTurn::setText,
+                roomContext::setState,
+                this::onPvEVictory,
+                this::onDefeat
+        );
+        innManager = new InnManager(this, gameSubject, this::log, this::refreshStats);
+    }
+
+    // ── Init / Load ───────────────────────────────────────────
 
     public void startPvPBattle(List<Hero> p1Party, String p1Name,
                                List<Hero> p2Party, String p2Name,
                                java.util.function.BiConsumer<String, String> onResult) {
-        isPvP             = true;
-        pvpPlayer1Name    = p1Name;
-        pvpPlayer2Name    = p2Name;
-        pvpPlayer2Party   = new ArrayList<>(p2Party);
-        pvpResultCallback = onResult;
-
-        party       = new ArrayList<>(p1Party);
-        gold        = 0;
-        currentRoom = 0;
+        isPvP          = true;
+        pvpPlayer1Name = p1Name;
+        pvpPlayer2Name = p2Name;
+        party          = new ArrayList<>(p1Party);
+        gold           = 0;
+        currentRoom    = 0;
         logArea.setText("");
         log("=== PvP Battle: " + p1Name + " vs " + p2Name + " ===");
-        log(p1Name + "'s party: " + party.stream()
-                .map(h -> h.getName() + " [" + h.getClassName() + " Lv" + h.getLevel() + "]")
-                .collect(Collectors.joining(", ")));
-        log(p2Name + "'s party: " + pvpPlayer2Party.stream()
-                .map(h -> h.getName() + " [" + h.getClassName() + " Lv" + h.getLevel() + "]")
-                .collect(Collectors.joining(", ")));
 
-        currentMobs = new ArrayList<>();
-        for (Hero opponent : pvpPlayer2Party) currentMobs.add(new PvPMob(opponent));
-        inBattle = true;
-        roomContext.setState(new BattleState());
+        battleManager.initPvP(party, p1Name, p2Party, p2Name, onResult);
         lblRoom.setText("PvP Battle");
         refreshStats();
         refreshMobPanel();
-        startNewRound();
+        battleManager.startNewRound();
+        roomContext.setState(new BattleState());
     }
 
     public void startNewGame(List<Hero> startingParty) {
@@ -211,9 +186,7 @@ public class GamePanel extends JPanel implements GameObserver {
         currentRoom = 0;
         inventory   = new LinkedHashMap<>();
         logArea.setText("");
-        log("=== Game Started! Party: " + party.stream()
-                .map(h -> h.getName() + " (" + h.getClassName() + ")")
-                .collect(Collectors.joining(", ")) + " ===");
+        log("=== Game Started! Party: " + partyNames() + " ===");
         enterNextRoom();
     }
 
@@ -222,422 +195,100 @@ public class GamePanel extends JPanel implements GameObserver {
         party       = new ArrayList<>(savedParty);
         gold        = savedGold;
         currentRoom = savedRoom;
-        // load inventory from DB
-        inventory = DatabaseManager.getInstance().save.loadInventory(currentUser[0]);
+        inventory   = DatabaseManager.getInstance().save.loadInventory(currentUser[0]);
         logArea.setText("");
-        log("=== Save Loaded! Party: " + party.stream()
-                .map(h -> h.getName() + " (" + h.getClassName() + ")")
-                .collect(Collectors.joining(", ")) + " ===");
+        log("=== Save Loaded! Party: " + partyNames() + " ===");
         enterNextRoom();
     }
 
-    public void loadGame(String heroClass, String heroName, int level, double hp,
-                         int attack, int defense, int mana, int goldAmt, int room) {
-        Hero hero = HeroFactory.getFactory(heroClass).createHero(heroName);
-        party = new ArrayList<>();
-        party.add(hero);
-        hero.setLevel(level);
-        hero.changeHp(hp);
-        hero.changeAttack(attack);
-        hero.changeDefense(defense);
-        hero.changeMana(mana);
-        this.gold        = goldAmt;
-        this.currentRoom = room;
-        inventory        = new LinkedHashMap<>();
-        logArea.setText("");
-        log("=== Save Loaded! Room " + room + " ===");
-        enterNextRoom();
+    private String partyNames() {
+        return party.stream().map(h -> h.getName() + " (" + h.getClassName() + ")")
+                .collect(Collectors.joining(", "));
     }
 
-    // room mechanics
+    // ── Room Navigation ───────────────────────────────────────
 
     private void enterNextRoom() {
         currentRoom++;
         if (currentRoom > TOTAL_ROOMS) { endCampaign(); return; }
 
-        currentMobs = new ArrayList<>();
-        inBattle    = false;
-
-        // encounter probability per spec: 60% base, +3% per 10 cumulative levels
-        int cumLevel = party.stream().mapToInt(Hero::getLevel).sum();
-        int shift    = (cumLevel / 10) * 3;
-        int encounterChance = Math.min(90, 60 + shift);
-
+        activeHero = null;
         lblRoom.setText("Room " + currentRoom + " / " + TOTAL_ROOMS);
         refreshStats();
 
+        int cumLevel = party.stream().mapToInt(Hero::getLevel).sum();
+        int encounterChance = Math.min(90, 60 + (cumLevel / 10) * 3);
+
         if (random.nextInt(100) < encounterChance) {
-            spawnMobs();
-            startBattle();
+            List<Mob> mobs = MobSpawner.spawnEnemies(cumLevel);
+            log("--- " + mobs.size() + " enemy mob(s) appeared! ---");
+            for (Mob m : mobs)
+                log("  Enemy Lv" + m.getLevel() + " | HP:" + (int)m.getHp()
+                        + " ATK:" + (int)m.getPower() + " DEF:" + m.getDefense());
+            battleManager.initPvE(party, mobs, gold);
+            refreshMobPanel();
+            roomContext.setState(new BattleState());
+            battleManager.startNewRound();
         } else {
             visitInn();
         }
     }
 
-    private void spawnMobs() {
-        int cumLevel = party.stream().mapToInt(Hero::getLevel).sum();
-        // 1-5 enemy units per spec
-        int numMobs = 1 + random.nextInt(5);
-        // enemy cumulative level scales with player cumulative level
-        int maxEnemyCumLevel = Math.max(numMobs, cumLevel);
-        int minEnemyCumLevel = Math.max(numMobs, cumLevel - 10);
-        int enemyCumLevel = minEnemyCumLevel + random.nextInt(Math.max(1, maxEnemyCumLevel - minEnemyCumLevel + 1));
+    // ── Battle Action Handlers (delegate to BattleManager) ───
 
-        // distribute levels among mobs
-        int[] mobLevels = new int[numMobs];
-        Arrays.fill(mobLevels, 1);
-        int remaining = enemyCumLevel - numMobs;
-        for (int i = 0; i < remaining; i++) {
-            mobLevels[random.nextInt(numMobs)]++;
-        }
-        // cap at level 10
-        for (int i = 0; i < numMobs; i++) {
-            mobLevels[i] = Math.min(10, mobLevels[i]);
-        }
+    /**
+     * Refactoring #2 — Long Method (queueAttack was LOC=68, CC=23):
+     * Target selection stays in GamePanel (UI concern).
+     * The actual damage calculation and queuing is handled by BattleManager.queueAttack().
+     */
+    private void handleAttack() {
+        Hero active = battleManager.getActiveHero();
+        if (active == null) return;
 
-        for (int i = 0; i < numMobs; i++) {
-            int lvl = mobLevels[i];
-            // scale stats based on level
-            double mobHp  = 15 + lvl * 10;
-            int power     = 4 + lvl * 2;
-            int mobDef    = lvl-1;
-            int xp        = 50 * lvl;
-            int g         = 75 * lvl;
-            currentMobs.add(new NormalMob(mobHp, power, mobDef, lvl, xp, g));
-        }
-        log("--- " + numMobs + " enemy mob(s) appeared! ---");
-        for (Mob m : currentMobs) {
-            NormalMob nm = (NormalMob) m;
-            log("  Enemy Lv" + nm.getLevel() + " | HP:" + (int)nm.getHp()
-                    + " ATK:" + (int)nm.getPower() + " DEF:" + nm.getDefense());
-        }
-    }
-
-    private void startBattle() {
-        inBattle = true;
-        roomContext.setState(new BattleState());
-        refreshMobPanel();
-        startNewRound();
-    }
-
-    // turn based mechanics
-
-    private void startNewRound() {
-        pendingActions = new ArrayList<>();
-        waitQueue      = new ArrayList<>();
-        pvpPlayer2Turn = false;
-
-        if (isPvP) {
-            pvpPlayer2Actions = new ArrayList<>();
-            pvpPlayer2WaitQueue = new ArrayList<>();
-        }
-
-        // build turn order: sort heroes by level desc, then attack desc
-        List<Hero> sortedHeroes = party.stream()
-                .filter(h -> h.isAlive() && !h.isStunned())
-                .sorted((a, b) -> {
-                    if (b.getLevel() != a.getLevel()) return b.getLevel() - a.getLevel();
-                    return b.getAttack() - a.getAttack();
-                })
-                .collect(Collectors.toList());
-
-        // handle stunned heroes
-        for (Hero h : party) {
-            if (h.isStunned()) {
-                h.setStunned(false);
-                log(h.getName() + " recovers from stun.");
-            }
-        }
-
-        if (isPvP) {
-            for (Hero h : pvpPlayer2Party) {
-                if (h.isStunned()) {
-                    h.setStunned(false);
-                }
-            }
-
-            List<Hero> p2Sorted = pvpPlayer2Party.stream()
-                    .filter(h -> h.isAlive() && !h.isStunned())
-                    .sorted((a, b) -> {
-                        if (b.getLevel() != a.getLevel()) return b.getLevel() - a.getLevel();
-                        return b.getAttack() - a.getAttack();
-                    })
-                    .collect(Collectors.toList());
-            pvpPlayer2TurnQueue = new LinkedList<>(p2Sorted);
-        }
-
-        turnQueue = new LinkedList<>(sortedHeroes);
-
-        log("--- New round. ---");
-        promptNextHero();
-    }
-
-    private void promptNextHero() {
-        if (!pvpPlayer2Turn) {
-            if (turnQueue.isEmpty()) {
-                // process waiting heroes in FIFO order
-                if (!waitQueue.isEmpty()) {
-                    activeHero = waitQueue.remove(0);
-                    lblTurn.setText(activeHero.getName() + "'s turn (waited)");
-                    roomContext.setState(new BattleState());
-                    refreshStats();
-                    return;
-                }
-                if (isPvP) {
-                    pvpPlayer2Turn = true;
-                    log("--- " + pvpPlayer2Name + "'s Turn ---");
-                    promptNextHero();
-                    return;
-                }
-                resolveRound();
-                return;
-            }
-            activeHero = turnQueue.poll();
-            lblTurn.setText(activeHero.getName() + "'s turn (" + activeHero.getClassName() + ")");
-        } else {
-            if (pvpPlayer2TurnQueue.isEmpty()) {
-                if (!pvpPlayer2WaitQueue.isEmpty()) {
-                    activeHero = pvpPlayer2WaitQueue.remove(0);
-                    lblTurn.setText(activeHero.getName() + "'s turn (waited)");
-                    roomContext.setState(new BattleState());
-                    refreshStats();
-                    return;
-                }
-                resolveRound();
-                return;
-            }
-            activeHero = pvpPlayer2TurnQueue.poll();
-            lblTurn.setText(activeHero.getName() + "'s turn (" + activeHero.getClassName() + ")");
-        }
-
-        roomContext.setState(new BattleState());
-        refreshStats();
-    }
-
-    // queued combat actions
-
-    private void queueAttack() {
-        if (activeHero == null) return;
-        final Hero attacker = activeHero;
-        final boolean actingAsP2 = isPvP && pvpPlayer2Turn;
-
-        // let player pick a target
-        List<String> names = new ArrayList<>();
+        boolean actAsP2 = battleManager.isPvP() && battleManager.isPvP2Turn();
+        List<String> names   = new ArrayList<>();
         List<Object> targets = new ArrayList<>();
 
-        if (actingAsP2) {
-            for (Hero h : party) {
-                if (h.isAlive()) {
-                    names.add(h.getName());
-                    targets.add(h);
-                }
-            }
+        if (actAsP2) {
+            for (Hero h : party) if (h.isAlive()) { names.add(h.getName()); targets.add(h); }
         } else {
-            for (int i = 0; i < currentMobs.size(); i++) {
-                Mob m = currentMobs.get(i);
+            List<Mob> mobs = battleManager.getCurrentMobs();
+            for (int i = 0; i < mobs.size(); i++) {
+                Mob m = mobs.get(i);
                 if (m.isAlive()) {
-                    if (m instanceof PvPMob) {
-                        names.add(((PvPMob) m).getHero().getName());
-                    } else {
-                        names.add("Enemy " + (i + 1) + " (Lv" + m.getLevel() + ")");
-                    }
+                    names.add(m instanceof PvPMob
+                            ? ((PvPMob) m).getHero().getName()
+                            : "Enemy " + (i + 1) + " (Lv" + m.getLevel() + ")");
                     targets.add(m);
                 }
             }
         }
-
         if (names.isEmpty()) return;
 
-        String chosen = (String) JOptionPane.showInputDialog(
-                this, "Choose target for " + attacker.getName() + ":", "Attack Target",
+        String chosen = names.size() == 1 ? names.get(0)
+                : (String) JOptionPane.showInputDialog(this,
+                "Choose target for " + active.getName() + ":", "Attack Target",
                 JOptionPane.PLAIN_MESSAGE, null, names.toArray(), names.get(0));
-
         if (chosen == null) return;
 
-        final Object targetRef = targets.get(names.indexOf(chosen));
-
-        Runnable action = () -> {
-            if (targetRef instanceof Hero) {
-                Hero targetHero = (Hero) targetRef;
-                int damage = Math.max(0, attacker.getAttack() - targetHero.getDefense());
-                targetHero.takeDamage(damage);
-                log(attacker.getName() + " attacks " + targetHero.getName() + " for " + damage + " damage!");
-            } else if (targetRef instanceof Mob) {
-                Mob targetMob = (Mob) targetRef;
-                int damage = Math.max(0, attacker.getAttack() - targetMob.getDefense());
-                targetMob.takeDamage(damage);
-                log(attacker.getName() + " attacks for " + damage + " damage!");
-
-                if (attacker instanceof Warrior && attacker.isHybrid()
-                        && "ROGUE".equals(attacker.getHybridClass())) {
-                    if (random.nextBoolean()) {
-                        List<Mob> alive = currentMobs.stream().filter(Mob::isAlive).collect(Collectors.toList());
-                        if (!alive.isEmpty()) {
-                            Mob bonusTarget = alive.get(random.nextInt(alive.size()));
-                            int bonusDmg = (int)(Math.max(0, attacker.getAttack() - bonusTarget.getDefense()) * 0.5);
-                            bonusTarget.takeDamage(bonusDmg);
-                            log("Sneak Attack! Bonus hit for " + bonusDmg + "!");
-                        }
-                    }
-                }
-                if (attacker instanceof Mage && attacker.isHybrid()
-                        && "WARLOCK".equals(attacker.getHybridClass()) && targetMob instanceof PvPMob) {
-                    ((Mage) attacker).manaBurn(((PvPMob) targetMob).getHero());
-                }
-            }
-        };
-
-        if (actingAsP2) pvpPlayer2Actions.add(action);
-        else pendingActions.add(action);
-
-        log(activeHero.getName() + " chose: Attack");
-        activeHero = null;
-        promptNextHero();
+        battleManager.queueAttack(targets.get(names.indexOf(chosen)));
     }
 
-    private void queueDefend() {
-        if (activeHero == null) return;
-        final Hero defender = activeHero;
-        final boolean actingAsP2 = isPvP && pvpPlayer2Turn;
+    private void handleDefend() { battleManager.queueDefend(); }
+    private void handleWait()   { battleManager.queueWait(); }
 
-        Runnable action = () -> {
-            defender.defend();
-            log(defender.getName() + " defends. +10 HP, +5 Mana.");
-        };
-
-        if (actingAsP2) pvpPlayer2Actions.add(action);
-        else pendingActions.add(action);
-
-        log(activeHero.getName() + " chose: Defend");
-        activeHero = null;
-        promptNextHero();
-    }
-
-    private void queueWait() {
-        if (activeHero == null) return;
-        log(activeHero.getName() + " chose: Wait (acts at end of round)");
-        if (isPvP && pvpPlayer2Turn) pvpPlayer2WaitQueue.add(activeHero);
-        else waitQueue.add(activeHero);
-        activeHero = null;
-        promptNextHero();
-    }
-
-    private void queueCast() {
-        if (activeHero == null) return;
-        String[] spells = getSpellOptions(activeHero);
-        if (spells.length == 0) { log("No spells available!"); return; }
-
-        String chosen = (String) JOptionPane.showInputDialog(
-                this, "Choose a spell for " + activeHero.getName() + ":", "Cast Spell",
-                JOptionPane.PLAIN_MESSAGE, null, spells, spells[0]);
-        if (chosen == null) return;
-
-        // check mana before committing
-        int cost = getSpellCost(chosen, activeHero);
-        if (activeHero.getMana() < cost) {
-            JOptionPane.showMessageDialog(this, "Not enough mana! Need " + cost + ", have " + activeHero.getMana(),
-                    "Cast Spell", JOptionPane.WARNING_MESSAGE);
-            return;
-        }
-
-        final Hero caster      = activeHero;
-        final String spell     = chosen;
-        final boolean actingAsP2 = isPvP && pvpPlayer2Turn;
-
-        final List<Hero> friends = actingAsP2 ? pvpPlayer2Party : party;
-        final List<Hero> enemies = actingAsP2 ? party : pvpPlayer2Party;
-
-        Runnable action = () -> {
-            Hero[] friendlyArray = friends.stream()
-                    .filter(Hero::isAlive)
-                    .toArray(n -> new Hero[n]);
-            Mob[] enemyMobs;
-            if (isPvP) {
-                enemyMobs = new Mob[enemies.size()];
-                for (int i = 0; i < enemies.size(); i++) {
-                    enemyMobs[i] = new PvPMob(enemies.get(i));
-                }
-            } else {
-                enemyMobs = currentMobs.toArray(new Mob[0]);
-            }
-            castSpell(caster, spell, friendlyArray, enemyMobs);
-        };
-
-        if (actingAsP2) pvpPlayer2Actions.add(action);
-        else pendingActions.add(action);
-
-        log(activeHero.getName() + " chose: " + spell);
-        activeHero = null;
-        promptNextHero();
-    }
-
-    // resolving the round
-
-    private void resolveRound() {
-        roomContext.setState(new ResolvingState());
-        lblTurn.setText("Resolving round...");
-        lblQueue.setText(" ");
-
-        log("=== Turn 1 Actions ===");
-        for (Runnable action : pendingActions) action.run();
-        refreshStats();
-        refreshMobPanel();
-        if (checkBattleEnd()) return;
-
-        if (isPvP) {
-            log("=== Turn 2 Actions ===");
-            for (Runnable action : pvpPlayer2Actions) action.run();
-            refreshStats();
-            refreshMobPanel();
-            if (checkBattleEnd()) return;
-            startNewRound();
-        } else {
-            log("=== Enemies act ===");
-            mobsTurn();
-        }
-    }
-
-    private void castSpell(Hero caster, String spell, Hero[] partyArr, Mob[] mobs) {
+    private int getSpellCost(String spell, Hero caster) {
         switch (spell) {
-            case "Protect":
-                ((Order) caster).protect(partyArr);
-                break;
-            case "Fire Shield":
-                ((Order) caster).fireShield(partyArr);
-                break;
-            case "Heal":
-                ((Order) caster).heal(partyArr);
-                break;
-            case "Fireball":
-                ((Chaos) caster).fireball(getMobsAsHeroArray(mobs));
-                break;
-            case "Chain Lightning":
-                ((Chaos) caster).chainLightning(getMobsAsHeroArray(mobs));
-                break;
-            case "Berserker Attack":
-                ((Warrior) caster).berserkerAttack(getMobsAsHeroArray(mobs));
-                break;
+            case "Protect": case "Fire Shield": return 25;
+            case "Heal":              return 35;
+            case "Fireball":          return 30;
+            case "Chain Lightning":   return 40;
+            case "Berserker Attack":  return 60;
             case "Replenish":
-                ((Mage) caster).replenish(partyArr);
-                break;
+                if (caster.isHybrid() && "WIZARD".equals(caster.getHybridClass())) return 40;
+                return 80;
+            default: return 0;
         }
-        refreshMobPanel();
-    }
-
-    // Mobs don't extend Hero, so for spells that target Hero[], we apply damage directly
-    private Hero[] getMobsAsHeroArray(Mob[] mobs) {
-        // for PvP mobs we can get the hero reference
-        // for normal mobs we apply damage separately
-        List<Hero> targets = new ArrayList<>();
-        for (Mob m : mobs) {
-            if (m instanceof PvPMob && m.isAlive()) {
-                targets.add(((PvPMob) m).getHero());
-            }
-        }
-        if (!targets.isEmpty()) return targets.toArray(new Hero[0]);
-
-        // for normal mobs, create temp wrapper — spells that directly damage mobs are handled separately
-        return new Hero[0];
     }
 
     private String[] getSpellOptions(Hero h) {
@@ -660,190 +311,53 @@ public class GamePanel extends JPanel implements GameObserver {
         return new String[]{};
     }
 
-    private int getSpellCost(String spell, Hero caster) {
-        switch (spell) {
-            case "Protect": case "Fire Shield": return 25;
-            case "Heal":              return 35;
-            case "Fireball":          return 30;
-            case "Chain Lightning":   return 40;
-            case "Berserker Attack":  return 60;
-            case "Replenish":
-                if (caster.isHybrid() && "WIZARD".equals(caster.getHybridClass())) return 40;
-                return 80;
-            default: return 0;
+    private void handleCast() {
+        Hero active = battleManager.getActiveHero();
+        if (active == null) return;
+
+        String[] spells = getSpellOptions(active);
+        if (spells.length == 0) { log("No spells available!"); return; }
+
+        String chosen = (String) JOptionPane.showInputDialog(this,
+                "Choose a spell for " + active.getName() + ":", "Cast Spell",
+                JOptionPane.PLAIN_MESSAGE, null, spells, spells[0]);
+        if (chosen == null) return;
+
+        int cost = getSpellCost(chosen, active);
+        if (active.getMana() < cost) {
+            JOptionPane.showMessageDialog(this, "Not enough mana! Need " + cost + ", have " + active.getMana(),
+                    "Cast Spell", JOptionPane.WARNING_MESSAGE);
+            return;
         }
+        battleManager.queueCast(chosen);
     }
 
-    private void mobsTurn() {
-        List<Hero> living = party.stream().filter(Hero::isAlive).collect(Collectors.toList());
-        if (living.isEmpty()) { playerDied(); return; }
+    // battle result methods
 
-        for (Mob mob : currentMobs) {
-            if (!mob.isAlive()) continue;
-            int action = random.nextInt(3); // 0=attack, 1=defend, 2=wait
-            if (action == 0) {
-                Hero target = living.get(random.nextInt(living.size()));
-                mob.attack(target);
-                log("Enemy attacks " + target);
-                if (!target.isAlive()) {
-                    gameSubject.notifyHeroDefeated(target.getName());
-                    living.remove(target);
-                    if (living.isEmpty()) break;
-                }
-            } else if (action == 1) {
-                log("Enemy defends.");
-            } else {
-                log("Enemy waits.");
-            }
-        }
-        refreshStats();
-        refreshMobPanel();
-        if (party.stream().noneMatch(Hero::isAlive)) { playerDied(); return; }
-        if (inBattle) startNewRound();
-    }
-
-    // battle ending logic
-
-    private boolean checkBattleEnd() {
-        if (isPvP) {
-            boolean p1Dead = party.stream().noneMatch(Hero::isAlive);
-            boolean p2Dead = pvpPlayer2Party.stream().noneMatch(Hero::isAlive);
-
-            if (!p1Dead && !p2Dead) return false;
-
-            inBattle = false;
-            String winner = p2Dead ? pvpPlayer1Name : pvpPlayer2Name;
-            log("=== " + winner + " wins the PvP battle! ===");
-            roomContext.setState(new VictoryState());
-            if (pvpResultCallback != null) pvpResultCallback.accept(winner, p2Dead ? pvpPlayer2Name : pvpPlayer1Name);
-            return true;
-        }
-
-        if (currentMobs.stream().anyMatch(Mob::isAlive)) return false;
-
-        inBattle       = false;
-        turnQueue      = null;
-        activeHero     = null;
-        pendingActions = null;
-        waitQueue      = null;
-        lblTurn.setText(" ");
-        lblQueue.setText(" ");
-
-        // PvE: calculate rewards
-        int totalXp   = currentMobs.stream().mapToInt(Mob::getXpReward).sum();
-        int totalGold = currentMobs.stream().mapToInt(Mob::getGoldReward).sum();
-        gold += totalGold;
-        gameSubject.notifyGoldChanged(gold);
-
-        List<Hero> survivors = party.stream().filter(Hero::isAlive).collect(Collectors.toList());
-        int xpEach = survivors.isEmpty() ? 0 : totalXp / survivors.size();
-
-        log("--- Victory! +" + totalXp + " XP (each survivor gets " + xpEach + "), +" + totalGold + " Gold ---");
-
-        // grant XP and handle level-ups
-        for (Hero h : survivors) {
-            int before = h.getLevel();
-            gameSubject.notifyExperienceGained(h.getName(), xpEach);
-            h.gainExperience(xpEach);
-            if (h.getLevel() > before) {
-                gameSubject.notifyLevelUp(h.getName(), h.getLevel(), h.getClassName());
-                // offer class level-up choice
-                offerLevelUpChoice(h);
-            }
-            if (h.getLevel() < 20) {
-                log(h.getName() + ": " + h.getExperience() + " XP | "
-                        + (h.expNeededForLevel(h.getLevel() + 1) - h.getExperience()) + " to next level");
-            }
-        }
-
+    // refactoring checkBattleEnd()
+    // refactor #5
+    private void onPvEVictory() {
+        battleManager.distributeXP(this::offerLevelUpChoice);
         refreshStats();
         refreshMobPanel();
         roomContext.setState(new VictoryState());
+        gold = battleManager.getGold();
         saveProgress();
-        return true;
     }
 
-    // let player choose which class to put a level into
-    private void offerLevelUpChoice(Hero h) {
-        String primaryClass = h.getClass().getSimpleName();
-        if (h.getSecondaryClassName() != null) {
-            // already has two classes - let them pick which to level
-            String[] options = {primaryClass, h.getSecondaryClassName()};
-            String pick = (String) JOptionPane.showInputDialog(this,
-                    h.getName() + " levelled up! Choose which class to increase:",
-                    "Level Up", JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
-            if (pick != null) {
-                if (pick.equalsIgnoreCase(primaryClass)) {
-                    h.levelUpPrimaryClass();
-                    log(h.getName() + " increased " + primaryClass + " class level to " + h.getPrimaryClassLevel());
-                } else {
-                    h.levelUpSecondaryClass();
-                    log(h.getName() + " increased " + h.getSecondaryClassName() + " class level to " + h.getSecondaryClassLevel());
-                }
-            }
-        } else {
-            // no secondary class yet - offer to pick one or stick with primary
-            String[] allClasses = {"Warrior", "Mage", "Order", "Chaos"};
-            List<String> options = new ArrayList<>();
-            options.add(primaryClass + " (current)");
-            for (String c : allClasses) {
-                if (!c.equalsIgnoreCase(primaryClass)) {
-                    options.add(c + " (new secondary)");
-                }
-            }
-            String pick = (String) JOptionPane.showInputDialog(this,
-                    h.getName() + " levelled up! Level up current class or pick a secondary:",
-                    "Level Up", JOptionPane.QUESTION_MESSAGE, null, options.toArray(), options.get(0));
-            if (pick != null) {
-                if (pick.contains("current")) {
-                    h.levelUpPrimaryClass();
-                    log(h.getName() + " increased " + primaryClass + " class level to " + h.getPrimaryClassLevel());
-                } else {
-                    String newClass = pick.split(" \\(")[0];
-                    h.setSecondaryClassName(newClass);
-                    h.setSecondaryClassLevel(1);
-                    // trigger hybrid check
-                    if (h instanceof Order) ((Order) h).triggerHybridWith(newClass.toUpperCase());
-                    else if (h instanceof Chaos) ((Chaos) h).triggerHybridWith(newClass.toUpperCase());
-                    else if (h instanceof Warrior) ((Warrior) h).triggerHybridWith(newClass.toUpperCase());
-                    else if (h instanceof Mage) ((Mage) h).triggerHybridWith(newClass.toUpperCase());
-                    log(h.getName() + " started learning " + newClass + " as secondary class!");
-                }
-            }
-        }
-    }
-
-    private void playerDied() {
-        inBattle       = false;
-        turnQueue      = null;
-        activeHero     = null;
-        pendingActions = null;
-        waitQueue      = null;
-        lblTurn.setText(" ");
-        lblQueue.setText(" ");
-
-        if (isPvP) {
-            log("=== " + pvpPlayer2Name + " wins the PvP battle! ===");
-            if (pvpResultCallback != null) pvpResultCallback.accept(pvpPlayer2Name, pvpPlayer1Name);
-            roomContext.setState(new DefeatedState());
-            return;
-        }
-
-        // lose 10% gold
+    private void onDefeat() {
         int lostGold = (int)(gold * 0.10);
         gold -= lostGold;
         gameSubject.notifyGoldChanged(gold);
 
-        // lose 30% of current-level XP for each hero
         for (Hero h : party) {
-            int xpForCurrentLevel = h.getExperience() - h.expNeededForLevel(h.getLevel());
-            int xpLost = (int)(xpForCurrentLevel * 0.30);
+            int xpForLevel = h.getExperience() - h.expNeededForLevel(h.getLevel());
+            int xpLost = (int)(xpForLevel * 0.30);
             if (xpLost > 0) {
                 h.setExperience(h.getExperience() - xpLost);
                 log(h.getName() + " lost " + xpLost + " XP.");
             }
         }
-
         log("--- Defeated! Lost " + lostGold + " gold. ---");
         for (Hero h : party) h.fullRestore();
         refreshStats();
@@ -852,32 +366,93 @@ public class GamePanel extends JPanel implements GameObserver {
                 "Defeated", JOptionPane.WARNING_MESSAGE);
     }
 
-    // viewing party and items
+    // inn methods
+
+    private void visitInn() {
+        String msg = innManager.restoreParty(party);
+        JOptionPane.showMessageDialog(this, msg, "Inn", JOptionPane.INFORMATION_MESSAGE);
+        log("--- Inn: all party members restored. ---");
+        refreshStats();
+
+        if (currentRoom <= 10 && party.size() < 5) {
+            int[] goldRef = {gold};
+            Hero recruit = innManager.offerRecruitment(party, goldRef);
+            if (recruit != null) { party.add(recruit); refreshStats(); }
+            gold = goldRef[0];
+        }
+
+        int[] goldRef = {gold};
+        innManager.showInnShop(inventory, goldRef);
+        gold = goldRef[0];
+        refreshStats();
+        roomContext.setState(new InnState());
+    }
+
+    private void handleUseItems() {
+        if (battleManager.isInBattle()) {
+            JOptionPane.showMessageDialog(this, "Can't use items during battle!", "Items", JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        if (inventory.isEmpty() || inventory.values().stream().allMatch(q -> q == 0)) {
+            JOptionPane.showMessageDialog(this, "Your inventory is empty!", "Items", JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        innManager.useItems(party, inventory);
+    }
+
+    // leveling up
+
+    private void offerLevelUpChoice(Hero h) {
+        String primaryClass = h.getClass().getSimpleName();
+        if (h.getSecondaryClassName() != null) {
+            String[] options = {primaryClass, h.getSecondaryClassName()};
+            String pick = (String) JOptionPane.showInputDialog(this,
+                    h.getName() + " levelled up! Choose which class to increase:",
+                    "Level Up", JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+            if (pick == null) return;
+            if (pick.equalsIgnoreCase(primaryClass)) {
+                h.levelUpPrimaryClass();
+                log(h.getName() + " increased " + primaryClass + " class level to " + h.getPrimaryClassLevel());
+            } else {
+                h.levelUpSecondaryClass();
+                log(h.getName() + " increased " + h.getSecondaryClassName() + " class level to " + h.getSecondaryClassLevel());
+            }
+        } else {
+            String[] allClasses = {"Warrior", "Mage", "Order", "Chaos"};
+            List<String> options = new ArrayList<>();
+            options.add(primaryClass + " (current)");
+            for (String c : allClasses) if (!c.equalsIgnoreCase(primaryClass)) options.add(c + " (new secondary)");
+
+            String pick = (String) JOptionPane.showInputDialog(this,
+                    h.getName() + " levelled up! Level up current class or pick a secondary:",
+                    "Level Up", JOptionPane.QUESTION_MESSAGE, null, options.toArray(), options.get(0));
+            if (pick == null) return;
+            if (pick.contains("current")) {
+                h.levelUpPrimaryClass();
+                log(h.getName() + " increased " + primaryClass + " class level to " + h.getPrimaryClassLevel());
+            } else {
+                String newClass = pick.split(" \\(")[0];
+                h.setSecondaryClassName(newClass);
+                h.setSecondaryClassLevel(1);
+                if (h instanceof Order)   ((Order)   h).triggerHybridWith(newClass.toUpperCase());
+                else if (h instanceof Chaos)   ((Chaos)   h).triggerHybridWith(newClass.toUpperCase());
+                else if (h instanceof Warrior) ((Warrior) h).triggerHybridWith(newClass.toUpperCase());
+                else if (h instanceof Mage)    ((Mage)    h).triggerHybridWith(newClass.toUpperCase());
+                log(h.getName() + " started learning " + newClass + " as secondary class!");
+            }
+        }
+    }
+
+    // party methods
 
     private void showPartyView() {
         StringBuilder sb = new StringBuilder();
         sb.append("=== PARTY ===\n");
-        for (Hero h : party) {
-            sb.append(String.format("%-20s [%s Lv%d]\n", h.getName(), h.getClassName(), h.getLevel()));
-            sb.append(String.format("  HP: %d/%d  MP: %d/%d  ATK: %d  DEF: %d\n",
-                    (int)h.getHp(), (int)h.getMaxHp(), h.getMana(), h.getMaxMana(), h.getAttack(), h.getDefense()));
-            sb.append(String.format("  Class Levels: %s Lv%d", h.getClass().getSimpleName(), h.getPrimaryClassLevel()));
-            if (h.getSecondaryClassName() != null) {
-                sb.append(String.format(" | %s Lv%d", h.getSecondaryClassName(), h.getSecondaryClassLevel()));
-            }
-            if (h.isHybrid()) sb.append(" | Hybrid: " + h.getHybridClass());
-            sb.append("\n");
-            sb.append(String.format("  XP: %d | To next level: %s\n",
-                    h.getExperience(),
-                    h.getLevel() < 20 ? String.valueOf(h.expNeededForLevel(h.getLevel() + 1) - h.getExperience()) : "MAX"));
-            if (!h.isAlive()) sb.append("  *** DEAD ***\n");
-            sb.append("\n");
-        }
+        for (Hero h : party) sb.append(buildHeroStatLine(h));
         sb.append("=== INVENTORY ===\n");
         boolean hasItems = false;
-        for (Map.Entry<String, Integer> e : inventory.entrySet()) {
+        for (Map.Entry<String, Integer> e : inventory.entrySet())
             if (e.getValue() > 0) { sb.append("  ").append(e.getKey()).append(" x").append(e.getValue()).append("\n"); hasItems = true; }
-        }
         if (!hasItems) sb.append("  (empty)\n");
         sb.append("\nGold: ").append(gold);
 
@@ -889,222 +464,54 @@ public class GamePanel extends JPanel implements GameObserver {
         JOptionPane.showMessageDialog(this, scroll, "Party & Inventory", JOptionPane.PLAIN_MESSAGE);
     }
 
-    // quitting campaign
+    private String buildHeroStatLine(Hero h) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("%-20s [%s Lv%d]\n", h.getName(), h.getClassName(), h.getLevel()));
+        sb.append(String.format("  HP: %d/%d  MP: %d/%d  ATK: %d  DEF: %d\n",
+                (int)h.getHp(), (int)h.getMaxHp(), h.getMana(), h.getMaxMana(), h.getAttack(), h.getDefense()));
+        sb.append(String.format("  Class Levels: %s Lv%d", h.getClass().getSimpleName(), h.getPrimaryClassLevel()));
+        if (h.getSecondaryClassName() != null)
+            sb.append(String.format(" | %s Lv%d", h.getSecondaryClassName(), h.getSecondaryClassLevel()));
+        if (h.isHybrid()) sb.append(" | Hybrid: ").append(h.getHybridClass());
+        sb.append("\n");
+        sb.append(String.format("  XP: %d | To next level: %s\n", h.getExperience(),
+                h.getLevel() < 20 ? String.valueOf(h.expNeededForLevel(h.getLevel() + 1) - h.getExperience()) : "MAX"));
+        if (!h.isAlive()) sb.append("  *** DEAD ***\n");
+        sb.append("\n");
+        return sb.toString();
+    }
+
+    // saving and exiting
 
     private void exitCampaign() {
-        if (inBattle) {
-            JOptionPane.showMessageDialog(this, "You cannot exit during a battle!",
-                    "Exit", JOptionPane.WARNING_MESSAGE);
+        if (battleManager.isInBattle()) {
+            JOptionPane.showMessageDialog(this, "You cannot exit during a battle!", "Exit", JOptionPane.WARNING_MESSAGE);
             return;
         }
-        int confirm = JOptionPane.showConfirmDialog(this,
-                "Exit the campaign? Your progress will be saved.",
-                "Exit Campaign", JOptionPane.YES_NO_OPTION);
-        if (confirm != JOptionPane.YES_OPTION) return;
+        if (JOptionPane.showConfirmDialog(this, "Exit the campaign? Your progress will be saved.",
+                "Exit Campaign", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
         saveProgress();
         log("--- Campaign saved. Returning to menu. ---");
         cl.show(container, "Menu");
     }
 
-    // inn mechanics
-
-    private void visitInn() {
-        inBattle = false;
-
-        // revive and restore all heroes
-        StringBuilder innMsg = new StringBuilder("<html><b>Inn visit — party restored:</b><br>");
-        for (Hero h : party) {
-            double missingHp   = h.getMaxHp()  - h.getHp();
-            int    missingMana = h.getMaxMana() - h.getMana();
-            boolean wasDead    = !h.isAlive();
-            h.fullRestore();
-            if (wasDead) {
-                innMsg.append(h.getName()).append(" was <b>revived</b> and fully restored.<br>");
-            } else {
-                innMsg.append(h.getName()).append(": +").append((int)missingHp)
-                        .append(" HP, +").append(missingMana).append(" Mana<br>");
-            }
-        }
-        innMsg.append("</html>");
-        JOptionPane.showMessageDialog(this, innMsg.toString(), "Inn", JOptionPane.INFORMATION_MESSAGE);
-        log("--- Inn: all party members restored. ---");
-        refreshStats();
-
-        // recruitment only in first 10 rooms and if party < 5
-        if (currentRoom <= 10 && party.size() < 5) offerRecruitment();
-        showInnShop();
-        roomContext.setState(new InnState());
+    private void saveProgress() {
+        DatabaseManager.getInstance().save.saveParty(currentUser[0], party, gold, currentRoom);
+        DatabaseManager.getInstance().save.saveInventory(currentUser[0], inventory);
     }
 
-    private static final String[] HERO_CLASSES = {"Warrior", "Mage", "Order", "Chaos"};
-
-    private void offerRecruitment() {
-        String recruitClass = HERO_CLASSES[random.nextInt(HERO_CLASSES.length)];
-        int recruitLevel    = 1 + random.nextInt(4); // 1-4
-        int cost            = recruitLevel == 1 ? 0 : 200 * recruitLevel;
-        String heroName     = recruitClass + "-" + (party.size() + 1);
-
-        String msg = "<html>A wandering <b>" + recruitClass + "</b> (Lv" + recruitLevel + ") is looking for work!<br>"
-                + (cost == 0 ? "They will join for FREE!" : "Hiring cost: <b>" + cost + "g</b>") + "</html>";
-
-        if (JOptionPane.showConfirmDialog(this, msg, "Recruit Hero?", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
-        if (gold < cost) { JOptionPane.showMessageDialog(this, "Not enough gold!", "Recruit", JOptionPane.WARNING_MESSAGE); return; }
-
-        gold -= cost;
-        gameSubject.notifyGoldChanged(gold);
-        Hero recruit = HeroFactory.getFactory(recruitClass).createHero(heroName);
-        for (int i = 1; i < recruitLevel; i++) recruit.gainExperience(recruit.expNeededForLevel(i + 1));
-        party.add(recruit);
-        log("--- " + heroName + " the " + recruitClass + " (Lv" + recruit.getLevel() + ") joined! ---");
-        refreshStats();
-    }
-
-    private static final Object[][] ITEM_DEFS = {
-            {"Bread",  200,  20,   0,   false},
-            {"Cheese", 500,  50,   0,   false},
-            {"Steak",  1000, 200,  0,   false},
-            {"Water",  150,  0,    10,  false},
-            {"Juice",  400,  0,    30,  false},
-            {"Wine",   750,  0,    100, false},
-            {"Elixir", 2000, 0,    0,   true },
-    };
-
-    private void showInnShop() {
-        while (true) {
-            String[] options = new String[ITEM_DEFS.length + 1];
-            for (int i = 0; i < ITEM_DEFS.length; i++) {
-                String name  = (String)  ITEM_DEFS[i][0];
-                int cost     = (int)     ITEM_DEFS[i][1];
-                int hp       = (int)     ITEM_DEFS[i][2];
-                int mana     = (int)     ITEM_DEFS[i][3];
-                boolean full = (boolean) ITEM_DEFS[i][4];
-                int qty      = inventory.getOrDefault(name, 0);
-                String effect = full ? "Full restore" : (hp > 0 ? "+" + hp + " HP" : "") + (mana > 0 ? " +" + mana + " MP" : "");
-                options[i] = name + " - " + cost + "g (" + effect + ") [owned: " + qty + "]";
-            }
-            options[ITEM_DEFS.length] = "Leave Shop";
-
-            String pick = (String) JOptionPane.showInputDialog(this,
-                    "Gold: " + gold + "  |  Inventory: " + inventorySummary(),
-                    "Inn Shop", JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
-            if (pick == null || pick.startsWith("Leave")) break;
-
-            for (Object[] def : ITEM_DEFS) {
-                if (pick.startsWith((String) def[0])) {
-                    int cost = (int) def[1];
-                    if (gold < cost) {
-                        JOptionPane.showMessageDialog(this, "Not enough gold!", "Shop", JOptionPane.WARNING_MESSAGE);
-                    } else {
-                        gold -= cost;
-                        gameSubject.notifyGoldChanged(gold);
-                        String name = (String) def[0];
-                        inventory.put(name, inventory.getOrDefault(name, 0) + 1);
-                        log("Bought " + name + " for " + cost + "g. [" + name + " x" + inventory.get(name) + "]");
-                        refreshStats();
-                    }
-                    break;
-                }
-            }
-        }
-        refreshStats();
-    }
-
-    public void useItems() {
-        if (inBattle) { JOptionPane.showMessageDialog(this, "Can't use items during battle!", "Items", JOptionPane.WARNING_MESSAGE); return; }
-        if (inventory.isEmpty() || inventory.values().stream().allMatch(q -> q == 0)) {
-            JOptionPane.showMessageDialog(this, "Your inventory is empty!", "Items", JOptionPane.INFORMATION_MESSAGE); return;
-        }
-        while (true) {
-            List<String> available = new ArrayList<>();
-            for (Map.Entry<String, Integer> e : inventory.entrySet())
-                if (e.getValue() > 0) available.add(e.getKey() + " x" + e.getValue());
-            if (available.isEmpty()) break;
-            available.add("Close");
-
-            String pick = (String) JOptionPane.showInputDialog(this, "Select item to use:", "Inventory",
-                    JOptionPane.PLAIN_MESSAGE, null, available.toArray(), available.get(0));
-            if (pick == null || pick.equals("Close")) break;
-
-            String itemName = pick.split(" x")[0];
-            String[] heroNames = party.stream().map(Hero::getName).toArray(String[]::new);
-            String targetName = (String) JOptionPane.showInputDialog(this,
-                    "Use " + itemName + " on which hero?", "Use Item",
-                    JOptionPane.PLAIN_MESSAGE, null, heroNames, heroNames[0]);
-            if (targetName == null) continue;
-
-            Hero target = party.stream().filter(h -> h.getName().equals(targetName)).findFirst().orElse(party.get(0));
-            for (Object[] def : ITEM_DEFS) {
-                if (def[0].equals(itemName)) {
-                    int hp = (int) def[2]; int mana = (int) def[3]; boolean full = (boolean) def[4];
-                    if (full) target.fullRestore();
-                    else { if (hp > 0) target.heal(hp); if (mana > 0) target.restoreMana(mana); }
-                    inventory.put(itemName, inventory.get(itemName) - 1);
-                    log(target.getName() + " used " + itemName + "!");
-                    refreshStats();
-                    break;
-                }
-            }
-        }
-    }
-
-    private String inventorySummary() {
-        if (inventory.isEmpty()) return "empty";
-        return inventory.entrySet().stream()
-                .filter(e -> e.getValue() > 0)
-                .map(e -> e.getKey() + "x" + e.getValue())
-                .collect(Collectors.joining(", "));
-    }
-
-    // end the campaign
+    // ending
 
     private void endCampaign() {
-        // score: 100 per hero level + 10 per gold + half item price * 10
         int totalLevels = party.stream().mapToInt(Hero::getLevel).sum();
-        int itemScore = 0;
-        for (Map.Entry<String, Integer> e : inventory.entrySet()) {
-            for (Object[] def : ITEM_DEFS) {
-                if (def[0].equals(e.getKey())) {
-                    int price = (int) def[1];
-                    itemScore += (int)(price * 0.5 * 10) * e.getValue();
-                    break;
-                }
-            }
-        }
-        int score = totalLevels * 100 + gold * 10 + itemScore;
+        int itemScore   = calculateItemScore();
+        int score       = totalLevels * 100 + gold * 10 + itemScore;
+
         log("=== Campaign Complete! Final Score: " + score + " ===");
         roomContext.setState(new ResolvingState());
         DatabaseManager.getInstance().save.saveScore(currentUser[0], score);
 
-        // offer to save party for PvP (up to 5 slots)
-        int existingSlots = DatabaseManager.getInstance().pvp.countPvPParties(currentUser[0]);
-        if (existingSlots >= 5) {
-            int replace = JOptionPane.showConfirmDialog(this,
-                    "You already have 5 saved parties. Replace one to save this party for PvP?",
-                    "Party Full", JOptionPane.YES_NO_OPTION);
-            if (replace == JOptionPane.YES_OPTION) {
-                java.util.List<String> slots = DatabaseManager.getInstance().pvp.getPvPPartySlotSummaries(currentUser[0]);
-                String[] slotArr = slots.toArray(new String[0]);
-                String pick = (String) JOptionPane.showInputDialog(this,
-                        "Choose a party slot to replace:", "Replace Party",
-                        JOptionPane.PLAIN_MESSAGE, null, slotArr, slotArr[0]);
-                if (pick != null) {
-                    int slotId = Integer.parseInt(pick.split(":")[0].replace("Slot ", "").trim()) - 1;
-                    DatabaseManager.getInstance().pvp.deletePvPParty(currentUser[0], slotId);
-                    DatabaseManager.getInstance().pvp.savePvPParty(currentUser[0], slotId, party);
-                    JOptionPane.showMessageDialog(this, "Party saved to PvP slot " + (slotId + 1) + "!",
-                            "Saved", JOptionPane.INFORMATION_MESSAGE);
-                }
-            }
-        } else {
-            int savePvp = JOptionPane.showConfirmDialog(this,
-                    "Campaign complete! Score: " + score + "\n\nSave your party for PvP battles?",
-                    "Campaign Over", JOptionPane.YES_NO_OPTION);
-            if (savePvp == JOptionPane.YES_OPTION) {
-                DatabaseManager.getInstance().pvp.savePvPParty(currentUser[0], existingSlots, party);
-                JOptionPane.showMessageDialog(this, "Party saved to PvP slot " + (existingSlots + 1) + "!",
-                        "Saved", JOptionPane.INFORMATION_MESSAGE);
-            }
-        }
+        offerPvPPartySave(score);
 
         JOptionPane.showMessageDialog(this,
                 "Final Score: " + score + "\nGold: " + gold
@@ -1114,12 +521,39 @@ public class GamePanel extends JPanel implements GameObserver {
         cl.show(container, "Menu");
     }
 
-    // helper methods
-
-    private void saveProgress() {
-        DatabaseManager.getInstance().save.saveParty(currentUser[0], party, gold, currentRoom);
-        DatabaseManager.getInstance().save.saveInventory(currentUser[0], inventory);
+    private int calculateItemScore() {
+        int itemScore = 0;
+        for (Map.Entry<String, Integer> e : inventory.entrySet())
+            for (Object[] def : InnManager.ITEM_DEFS)
+                if (def[0].equals(e.getKey())) { itemScore += (int)((int)def[1] * 0.5 * 10) * e.getValue(); break; }
+        return itemScore;
     }
+
+    private void offerPvPPartySave(int score) {
+        int existingSlots = DatabaseManager.getInstance().pvp.countPvPParties(currentUser[0]);
+        if (existingSlots >= 5) {
+            if (JOptionPane.showConfirmDialog(this,
+                    "You already have 5 saved parties. Replace one?",
+                    "Party Full", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+            List<String> slots = DatabaseManager.getInstance().pvp.getPvPPartySlotSummaries(currentUser[0]);
+            String pick = (String) JOptionPane.showInputDialog(this,
+                    "Choose a party slot to replace:", "Replace Party",
+                    JOptionPane.PLAIN_MESSAGE, null, slots.toArray(), slots.get(0));
+            if (pick == null) return;
+            int slotId = Integer.parseInt(pick.split(":")[0].replace("Slot ", "").trim()) - 1;
+            DatabaseManager.getInstance().pvp.deletePvPParty(currentUser[0], slotId);
+            DatabaseManager.getInstance().pvp.savePvPParty(currentUser[0], slotId, party);
+            JOptionPane.showMessageDialog(this, "Party saved to PvP slot " + (slotId + 1) + "!", "Saved", JOptionPane.INFORMATION_MESSAGE);
+        } else {
+            if (JOptionPane.showConfirmDialog(this,
+                    "Campaign complete! Score: " + score + "\n\nSave your party for PvP battles?",
+                    "Campaign Over", JOptionPane.YES_NO_OPTION) != JOptionPane.YES_OPTION) return;
+            DatabaseManager.getInstance().pvp.savePvPParty(currentUser[0], existingSlots, party);
+            JOptionPane.showMessageDialog(this, "Party saved to PvP slot " + (existingSlots + 1) + "!", "Saved", JOptionPane.INFORMATION_MESSAGE);
+        }
+    }
+
+    // UI
 
     private void log(String msg) {
         logArea.append(msg + "\n");
@@ -1145,8 +579,10 @@ public class GamePanel extends JPanel implements GameObserver {
 
     private void refreshMobPanel() {
         mobPanel.removeAll();
-        for (int i = 0; i < currentMobs.size(); i++) {
-            Mob mob = currentMobs.get(i);
+        List<Mob> mobs = battleManager.getCurrentMobs();
+        if (mobs == null) { mobPanel.revalidate(); mobPanel.repaint(); return; }
+        for (int i = 0; i < mobs.size(); i++) {
+            Mob mob = mobs.get(i);
             String label, details;
             if (mob instanceof PvPMob) {
                 Hero h = ((PvPMob) mob).getHero();
