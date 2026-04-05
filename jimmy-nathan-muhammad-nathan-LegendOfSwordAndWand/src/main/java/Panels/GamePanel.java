@@ -69,14 +69,14 @@ public class GamePanel extends JPanel implements GameObserver {
         initManagers();
     }
 
-    // ── Observer callbacks ────────────────────────────────────
+    // Observer methods
 
     @Override public void onHeroLevelUp(String n, int lv, String cls) { log(n + " levelled up to Lv" + lv + "! [" + cls + "]"); }
     @Override public void onHeroDefeated(String n)                    { log(n + " has been defeated!"); }
     @Override public void onGoldChanged(int g)                        { lblGold.setText("Gold: " + g); }
     @Override public void onExperienceGained(String n, int xp)       { log(n + " gained " + xp + " XP."); }
 
-    // ── UI Construction ───────────────────────────────────────
+    // UI
 
     private void buildUI() {
         JPanel topPanel = new JPanel(new GridLayout(1, 3, 5, 0));
@@ -141,7 +141,7 @@ public class GamePanel extends JPanel implements GameObserver {
         roomContext.setState(new InnState());
     }
 
-    /** Initialise BattleManager and InnManager with lambda callbacks into this panel. */
+    // initialize battlemanager and innmanager
     private void initManagers() {
         battleManager = new BattleManager(
                 gameSubject,
@@ -157,7 +157,7 @@ public class GamePanel extends JPanel implements GameObserver {
         innManager = new InnManager(this, gameSubject, this::log, this::refreshStats);
     }
 
-    // ── Init / Load ───────────────────────────────────────────
+    // initialise game variables
 
     public void startPvPBattle(List<Hero> p1Party, String p1Name,
                                List<Hero> p2Party, String p2Name,
@@ -206,7 +206,7 @@ public class GamePanel extends JPanel implements GameObserver {
                 .collect(Collectors.joining(", "));
     }
 
-    // ── Room Navigation ───────────────────────────────────────
+    // room creation
 
     private void enterNextRoom() {
         currentRoom++;
@@ -234,7 +234,7 @@ public class GamePanel extends JPanel implements GameObserver {
         }
     }
 
-    // ── Battle Action Handlers (delegate to BattleManager) ───
+    // battle handling
 
     /**
      * Refactoring #2 — Long Method (queueAttack was LOC=68, CC=23):
