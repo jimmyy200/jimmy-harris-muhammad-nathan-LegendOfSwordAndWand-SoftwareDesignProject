@@ -54,7 +54,7 @@ public class GameTestCases {
         int initialNormalMobHp = (int) normalMob.getHp();
         
         // Warrior attacks mob
-        warrior.basicAttack(normalMob);
+        normalMob.takeDamage(warrior.getPower());
         
         // Verify mob took damage
         assertTrue("Mob should take damage from attack", normalMob.getHp() < initialNormalMobHp);
@@ -257,7 +257,7 @@ public class GameTestCases {
         assertTrue("Mob should be alive initially", normalMob.isAlive());
         
         // Simulate one attack
-        warrior.basicAttack(normalMob);
+        normalMob.takeDamage(warrior.getPower());
         
         // Verify combat occurred
         assertTrue("Mob should have taken damage", normalMob.getHp() < 50);
