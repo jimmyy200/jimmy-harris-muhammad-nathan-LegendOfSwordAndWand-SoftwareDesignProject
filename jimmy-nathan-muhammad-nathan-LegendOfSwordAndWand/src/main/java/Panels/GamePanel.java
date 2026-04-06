@@ -1,18 +1,41 @@
 package Panels;
 
-import Factory.HeroFactory;
-import Hero.*;
-import Mob.*;
+import java.awt.BorderLayout;
+import java.awt.CardLayout;
+import java.awt.Color;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.awt.Font;
+import java.awt.GridLayout;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Random;
+import java.util.stream.Collectors;
+
+import javax.swing.BorderFactory;
+import javax.swing.JButton;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
+import javax.swing.SwingConstants;
+
+import Hero.Hero;
+import Mob.Mob;
+import Mob.MobSpawner;
+import Mob.PvPMob;
 import Observer.GameObserver;
 import Observer.GameSubject;
 import Singleton.DatabaseManager;
-import State.*;
-
-import javax.swing.*;
-import java.awt.*;
-import java.util.*;
-import java.util.List;
-import java.util.stream.*;
+import State.BattleState;
+import State.DefeatedState;
+import State.InnState;
+import State.ResolvingState;
+import State.RoomContext;
+import State.VictoryState;
 
 /**
  * Refactored GamePanel — God Class Refactoring (#1):
@@ -292,7 +315,23 @@ public class GamePanel extends JPanel implements GameObserver {
     }
 
     private String[] getSpellOptions(Hero h) {
-        return h.getSpells();
+        String className = h.getClass().getSimpleName().toUpperCase();
+        if (className.equals("ORDER")) {
+            if (h.isHybrid() && "HERETIC".equals(h.getHybridClass())) {
+                return new String[]{"Fire Shield", "Heal"};
+            }
+            return new String[]{"Protect", "Heal"};
+        }
+        if (className.equals("CHAOS")) {
+            return new String[]{"Fireball", "Chain Lightning"};
+        }
+        if (className.equals("WARRIOR")) {
+            return new String[]{"Berserker Attack"};
+        }
+        if (className.equals("MAGE")) {
+            return new String[]{"Replenish"};
+        }
+        return new String[]{};
     }
 
     private void handleCast() {
@@ -386,44 +425,52 @@ public class GamePanel extends JPanel implements GameObserver {
 
     // leveling up
 
+    // Refactor 9 - Long Method (offerLevelUpChoice)
+    // Split into three smaller methods and replaced instanceof chain with polymorphic call
     private void offerLevelUpChoice(Hero h) {
-        String primaryClass = h.getClass().getSimpleName();
         if (h.getSecondaryClassName() != null) {
-            String[] options = {primaryClass, h.getSecondaryClassName()};
-            String pick = (String) JOptionPane.showInputDialog(this,
-                    h.getName() + " levelled up! Choose which class to increase:",
-                    "Level Up", JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
-            if (pick == null) return;
-            if (pick.equalsIgnoreCase(primaryClass)) {
-                h.levelUpPrimaryClass();
-                log(h.getName() + " increased " + primaryClass + " class level to " + h.getPrimaryClassLevel());
-            } else {
-                h.levelUpSecondaryClass();
-                log(h.getName() + " increased " + h.getSecondaryClassName() + " class level to " + h.getSecondaryClassLevel());
-            }
+            levelUpExistingClass(h);
         } else {
-            String[] allClasses = {"Warrior", "Mage", "Order", "Chaos"};
-            List<String> options = new ArrayList<>();
-            options.add(primaryClass + " (current)");
-            for (String c : allClasses) if (!c.equalsIgnoreCase(primaryClass)) options.add(c + " (new secondary)");
+            chooseNewSecondary(h);
+        }
+    }
 
-            String pick = (String) JOptionPane.showInputDialog(this,
-                    h.getName() + " levelled up! Level up current class or pick a secondary:",
-                    "Level Up", JOptionPane.QUESTION_MESSAGE, null, options.toArray(), options.get(0));
-            if (pick == null) return;
-            if (pick.contains("current")) {
-                h.levelUpPrimaryClass();
-                log(h.getName() + " increased " + primaryClass + " class level to " + h.getPrimaryClassLevel());
-            } else {
-                String newClass = pick.split(" \\(")[0];
-                h.setSecondaryClassName(newClass);
-                h.setSecondaryClassLevel(1);
-                if (h instanceof Order)   ((Order)   h).triggerHybridWith(newClass.toUpperCase());
-                else if (h instanceof Chaos)   ((Chaos)   h).triggerHybridWith(newClass.toUpperCase());
-                else if (h instanceof Warrior) ((Warrior) h).triggerHybridWith(newClass.toUpperCase());
-                else if (h instanceof Mage)    ((Mage)    h).triggerHybridWith(newClass.toUpperCase());
-                log(h.getName() + " started learning " + newClass + " as secondary class!");
-            }
+    private void levelUpExistingClass(Hero h) {
+        String primaryClass = h.getClass().getSimpleName();
+        String[] options = {primaryClass, h.getSecondaryClassName()};
+        String pick = (String) JOptionPane.showInputDialog(this,
+                h.getName() + " levelled up! Choose which class to increase:",
+                "Level Up", JOptionPane.QUESTION_MESSAGE, null, options, options[0]);
+        if (pick == null) return;
+        if (pick.equalsIgnoreCase(primaryClass)) {
+            h.levelUpPrimaryClass();
+            log(h.getName() + " increased " + primaryClass + " class level to " + h.getPrimaryClassLevel());
+        } else {
+            h.levelUpSecondaryClass();
+            log(h.getName() + " increased " + h.getSecondaryClassName() + " class level to " + h.getSecondaryClassLevel());
+        }
+    }
+
+    private void chooseNewSecondary(Hero h) {
+        String primaryClass = h.getClass().getSimpleName();
+        String[] allClasses = {"Warrior", "Mage", "Order", "Chaos"};
+        List<String> options = new ArrayList<>();
+        options.add(primaryClass + " (current)");
+        for (String c : allClasses) if (!c.equalsIgnoreCase(primaryClass)) options.add(c + " (new secondary)");
+
+        String pick = (String) JOptionPane.showInputDialog(this,
+                h.getName() + " levelled up! Level up current class or pick a secondary:",
+                "Level Up", JOptionPane.QUESTION_MESSAGE, null, options.toArray(), options.get(0));
+        if (pick == null) return;
+        if (pick.contains("current")) {
+            h.levelUpPrimaryClass();
+            log(h.getName() + " increased " + primaryClass + " class level to " + h.getPrimaryClassLevel());
+        } else {
+            String newClass = pick.split(" \\(")[0];
+            h.setSecondaryClassName(newClass);
+            h.setSecondaryClassLevel(1);
+            h.triggerHybridWith(newClass.toUpperCase());
+            log(h.getName() + " started learning " + newClass + " as secondary class!");
         }
     }
 
