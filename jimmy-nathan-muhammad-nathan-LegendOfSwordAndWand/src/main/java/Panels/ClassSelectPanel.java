@@ -16,7 +16,6 @@ import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
 
-import Factory.HeroFactory;
 import Hero.Hero;
 import Singleton.DatabaseManager;
 
@@ -98,9 +97,9 @@ public class ClassSelectPanel extends JPanel {
                 return;
             }
             // Refactor 10 - Inappropriate Intimacy
-            // Extracted DB and factory calls into helper methods to reduce coupling
-            saveNewGameData(currentUser[0], selectedClasses.get(0));
-            List<Hero> party = buildStartingParty(selectedClasses, currentUser[0]);
+            // Delegate all DB and factory work to SaveRepository
+            DatabaseManager.getInstance().save.initNewGame(currentUser[0], selectedClasses.get(0));
+            List<Hero> party = DatabaseManager.getInstance().save.buildParty(selectedClasses, currentUser[0]);
 
             gamePanel.startNewGame(party);
             selectedClasses.clear();
@@ -121,27 +120,5 @@ public class ClassSelectPanel extends JPanel {
         } else {
             partyLabel.setText("Party (" + selectedClasses.size() + "/5): " + String.join(", ", selectedClasses));
         }
-    }
-
-    // Refactor 10 - Inappropriate Intimacy
-    // Isolated DatabaseManager calls into a single helper method
-    private void saveNewGameData(String username, String heroClass) {
-        DatabaseManager.getInstance().auth.saveClass(username, heroClass);
-        DatabaseManager.getInstance().save.saveGame(username);
-    }
-
-    // Refactor 10 - Inappropriate Intimacy
-    // Isolated HeroFactory calls into a single helper method
-    private List<Hero> buildStartingParty(List<String> classes, String username) {
-        List<Hero> party = new ArrayList<>();
-        for (int i = 0; i < classes.size(); i++) {
-            String heroName = username + (i == 0 ? "" : "-" + (i + 1));
-            party.add(createHero(classes.get(i), heroName));
-        }
-        return party;
-    }
-
-    private Hero createHero(String heroClass, String heroName) {
-        return HeroFactory.getFactory(heroClass).createHero(heroName);
     }
 }
