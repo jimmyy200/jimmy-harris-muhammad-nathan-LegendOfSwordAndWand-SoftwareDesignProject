@@ -3,6 +3,7 @@ package Singleton;
 import java.sql.*;
 import java.util.*;
 import Hero.Hero;
+import Factory.HeroFactory;
 
 public class SaveRepository {
     private final DatabaseManager db;
@@ -99,6 +100,53 @@ public class SaveRepository {
             ex.printStackTrace();
             return null;
         }
+    }
+
+    // Refactor 10 - Inappropriate Intimacy
+    // Panels no longer parse ResultSets or call HeroFactory directly
+    public List<Hero> loadPartyAsHeroes(String username) throws SQLException {
+        List<Hero> heroes = new ArrayList<>();
+        ResultSet rs = loadParty(username);
+        if (rs == null) return heroes;
+        while (rs.next()) {
+            String name = rs.getString("hero_name");
+            String className = rs.getString("hero_class");
+            Hero hero = HeroFactory.getFactory(className).createHero(name);
+            db.applyHeroStats(hero, rs);
+            heroes.add(hero);
+        }
+        return heroes;
+    }
+
+    // Refactor 10 - Inappropriate Intimacy
+    // Returns [gold, room] so panel does not need ResultSet access
+    public int[] loadGameMeta(String username) throws SQLException {
+        ResultSet rs = loadGame(username);
+        if (rs != null && rs.next()) {
+            int gold = rs.getInt("gold");
+            String roomStr = rs.getString("room").replaceAll("[^0-9]", "");
+            int room = roomStr.isEmpty() ? 0 : Integer.parseInt(roomStr);
+            return new int[]{gold, room};
+        }
+        return null;
+    }
+
+    // Refactor 10 - Inappropriate Intimacy
+    // Combines class save and game save into one call for ClassSelectPanel
+    public void initNewGame(String username, String heroClass) {
+        db.auth.saveClass(username, heroClass);
+        saveGame(username);
+    }
+
+    // Refactor 10 - Inappropriate Intimacy
+    // Builds a party of heroes from class names so panels don't call HeroFactory
+    public List<Hero> buildParty(List<String> classNames, String username) {
+        List<Hero> party = new ArrayList<>();
+        for (int i = 0; i < classNames.size(); i++) {
+            String heroName = username + (i == 0 ? "" : "-" + (i + 1));
+            party.add(HeroFactory.getFactory(classNames.get(i)).createHero(heroName));
+        }
+        return party;
     }
 
     public boolean saveInventory(String username, Map<String, Integer> inventory) {
