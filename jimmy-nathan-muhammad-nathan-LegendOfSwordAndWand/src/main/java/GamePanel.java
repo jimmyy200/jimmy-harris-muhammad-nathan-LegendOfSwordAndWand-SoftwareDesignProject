@@ -315,23 +315,7 @@ public class GamePanel extends JPanel implements GameObserver {
     }
 
     private String[] getSpellOptions(Hero h) {
-        String className = h.getClass().getSimpleName().toUpperCase();
-        if (className.equals("ORDER")) {
-            if (h.isHybrid() && "HERETIC".equals(h.getHybridClass())) {
-                return new String[]{"Fire Shield", "Heal"};
-            }
-            return new String[]{"Protect", "Heal"};
-        }
-        if (className.equals("CHAOS")) {
-            return new String[]{"Fireball", "Chain Lightning"};
-        }
-        if (className.equals("WARRIOR")) {
-            return new String[]{"Berserker Attack"};
-        }
-        if (className.equals("MAGE")) {
-            return new String[]{"Replenish"};
-        }
-        return new String[]{};
+        return h.getSpells();
     }
 
     private void handleCast() {

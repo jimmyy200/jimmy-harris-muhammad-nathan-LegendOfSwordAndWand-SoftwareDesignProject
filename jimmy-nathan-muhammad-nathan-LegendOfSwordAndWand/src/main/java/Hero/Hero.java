@@ -229,4 +229,5 @@ public abstract class Hero implements Subject {
     public void changeHp(double hp)        { this.hp = Math.min(maxHp, hp); }
     public void changeMana(int mana)       { this.mana = Math.min(maxMana, mana); }
     public void restoreMana(int amount)    { this.mana = Math.min(maxMana, mana + amount); }
+    public abstract String[] getSpells();
 }

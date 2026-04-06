@@ -99,4 +99,11 @@ public class Order extends Hero {
             }
         }
     }
+    @Override
+    public String[] getSpells(){
+        if (isHybrid() && "HERETIC".equals(hybridClass)) {
+            return new String[] {"Fire Shield", "Heal"};
+        }
+        return new String[] {"Protect", "Heal"};
+    }
 }

@@ -82,4 +82,6 @@ public class Warrior extends Hero {
             System.out.println(name + " heals from righteous fury!");
         }
     }
+    @Override
+    public String[] getSpells() {return new String[] {"Berserker Attack"};}
 }

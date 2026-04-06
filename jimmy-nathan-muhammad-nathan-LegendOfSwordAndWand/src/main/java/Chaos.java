@@ -78,4 +78,6 @@ public class Chaos extends Hero {
         }
         System.out.println(name + " casts Chain Lightning!");
     }
+    @Override
+    public String[] getSpells() {return new String[] {"Fireball", "Chain Lightning"};}
 }

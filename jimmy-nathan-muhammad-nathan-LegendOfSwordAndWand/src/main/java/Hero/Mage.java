@@ -73,4 +73,6 @@ public class Mage extends Hero {
             System.out.println(name + " drains " + drain + " mana from " + target.getName() + "!");
         }
     }
+    @Override
+    public String[] getSpells() {return new String[] {"Replenish"};}
 }
