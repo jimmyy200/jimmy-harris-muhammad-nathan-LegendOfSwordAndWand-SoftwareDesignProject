@@ -7,7 +7,6 @@ import java.awt.Container;
 import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.GridLayout;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
@@ -18,7 +17,6 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingConstants;
 
-import Factory.HeroFactory;
 import Hero.Hero;
 import Singleton.DatabaseManager;
 
@@ -96,6 +94,8 @@ public class LoadGamePanel extends JPanel {
         });
     }
 
+    // Refactor 10 - Inappropriate Intimacy
+    // Panel now delegates all DB and factory work to SaveRepository
     private void refreshSaveData() {
         loadedParty.clear();
         loadBtn.setEnabled(false);
@@ -103,77 +103,34 @@ public class LoadGamePanel extends JPanel {
         valParty.setText("-");
 
         try {
-            loadHeroData();
-            loadMetadata();
+            // Refactor 10 - use repository method instead of parsing ResultSet here
+            List<Hero> heroes = DatabaseManager.getInstance().save.loadPartyAsHeroes(currentUser[0]);
+
+            if (heroes.isEmpty()) {
+                noSaveLbl.setText("No save file found.");
+                return;
+            }
+
+            loadedParty.addAll(heroes);
+            StringBuilder summary = new StringBuilder("<html>");
+            for (Hero h : heroes) {
+                summary.append(h.getName()).append(" [Lv").append(h.getLevel()).append("]<br>");
+            }
+            summary.append("</html>");
+            valParty.setText(summary.toString());
+            loadBtn.setEnabled(true);
+
+            // Refactor 10 - use repository method instead of parsing ResultSet here
+            int[] meta = DatabaseManager.getInstance().save.loadGameMeta(currentUser[0]);
+            if (meta != null) {
+                savedMeta[0] = meta[0];
+                savedMeta[1] = meta[1];
+                valGold.setText(String.valueOf(meta[0]));
+                valRoom.setText(String.valueOf(meta[1]));
+            }
         } catch (SQLException ex) {
             ex.printStackTrace();
             noSaveLbl.setText("Database error occurred.");
         }
-    }
-
-    private void loadHeroData() throws SQLException {
-        ResultSet rs = DatabaseManager.getInstance().save.loadParty(currentUser[0]);
-        if (rs == null) {
-            noSaveLbl.setText("No save file found.");
-            return;
-        }
-
-        StringBuilder summary = new StringBuilder("<html>");
-        while (rs.next()) {
-            Hero hero = mapResultSetToHero(rs);
-            loadedParty.add(hero);
-            summary.append(hero.getName()).append(" [").append(rs.getString("hero_class"))
-                    .append(" Lv").append(hero.getLevel()).append("]<br>");
-        }
-        summary.append("</html>");
-
-        if (!loadedParty.isEmpty()) {
-            valParty.setText(summary.toString());
-            loadBtn.setEnabled(true);
-        } else {
-            noSaveLbl.setText("No save file found.");
-        }
-    }
-
-    private void loadMetadata() throws SQLException {
-        ResultSet rs = DatabaseManager.getInstance().save.loadGame(currentUser[0]);
-        if (rs != null && rs.next()) {
-            savedMeta[0] = rs.getInt("gold");
-            String roomStr = rs.getString("room").replaceAll("[^0-9]", "");
-            savedMeta[1] = roomStr.isEmpty() ? 0 : Integer.parseInt(roomStr);
-
-            valGold.setText(String.valueOf(savedMeta[0]));
-            valRoom.setText(String.valueOf(savedMeta[1]));
-        }
-    }
-
-    // Refactor 10 - Inappropriate Intimacy
-    // Isolated HeroFactory call into a helper method to reduce coupling
-    private Hero createHeroFromClass(String className, String name) {
-        return HeroFactory.getFactory(className).createHero(name);
-    }
-
-    private Hero mapResultSetToHero(ResultSet rs) throws SQLException {
-        String name = rs.getString("hero_name");
-        String className = rs.getString("hero_class");
-
-        Hero hero = createHeroFromClass(className, name);
-        hero.setLevel(rs.getInt("level"));
-        hero.setMaxHp(rs.getDouble("max_hp"));
-        hero.changeHp(rs.getDouble("hp"));
-        hero.changeAttack(rs.getInt("attack"));
-        hero.changeDefense(rs.getInt("defense"));
-        hero.setMaxMana(rs.getInt("max_mana"));
-        hero.changeMana(rs.getInt("mana"));
-        hero.setExperience(rs.getInt("experience"));
-        hero.setPrimaryClassLevel(rs.getInt("primary_class_level"));
-        hero.setSecondaryClassLevel(rs.getInt("secondary_class_level"));
-
-        String secName = rs.getString("secondary_class_name");
-        String hybrid = rs.getString("hybrid_class");
-        if (secName != null) hero.setSecondaryClassName(secName);
-        if (hybrid != null) hero.setHybridClass(hybrid);
-
-        return hero;
     }
 }
