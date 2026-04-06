@@ -30,6 +30,7 @@ public class Order extends Hero {
         }
     }
 
+    @Override
     public void triggerHybridWith(String secondaryClass) {
         if (isHybrid()) return;
         if (primaryClassLevel >= 5 && secondaryClassLevel >= 5) {
@@ -98,6 +99,7 @@ public class Order extends Hero {
             }
         }
     }
+
     @Override
     public String[] getSpells(){
         if (isHybrid() && "HERETIC".equals(hybridClass)) {

@@ -30,6 +30,7 @@ public class Chaos extends Hero {
         }
     }
 
+    @Override
     public void triggerHybridWith(String secondaryClass) {
         if (isHybrid()) return;
         if (primaryClassLevel >= 5 && secondaryClassLevel >= 5) {
@@ -77,6 +78,6 @@ public class Chaos extends Hero {
         }
         System.out.println(name + " casts Chain Lightning!");
     }
-    @Override
+
     public String[] getSpells() {return new String[] {"Fireball", "Chain Lightning"};}
 }

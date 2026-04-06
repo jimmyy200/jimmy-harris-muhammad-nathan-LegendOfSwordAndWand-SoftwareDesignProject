@@ -108,6 +108,11 @@ public abstract class Hero implements Subject {
     // Subclass sets hybridClass name when both classes reach 5
     protected abstract void triggerHybrid();
 
+    // Refactor 9 - Long Method (offerLevelUpChoice)
+    // Moved triggerHybridWith to base class to enable polymorphic dispatch
+    // and eliminate instanceof checks in GamePanel
+    public abstract void triggerHybridWith(String secondaryClass);
+
     public boolean isHybrid()         { return hybridClass != null; }
     public boolean isSpecialized()    { return primaryClassLevel >= 5 && !isHybrid(); }
     public String  getHybridClass()   { return hybridClass; }
@@ -229,5 +234,6 @@ public abstract class Hero implements Subject {
     public void changeHp(double hp)        { this.hp = Math.min(maxHp, hp); }
     public void changeMana(int mana)       { this.mana = Math.min(maxMana, mana); }
     public void restoreMana(int amount)    { this.mana = Math.min(maxMana, mana + amount); }
+
     public abstract String[] getSpells();
 }

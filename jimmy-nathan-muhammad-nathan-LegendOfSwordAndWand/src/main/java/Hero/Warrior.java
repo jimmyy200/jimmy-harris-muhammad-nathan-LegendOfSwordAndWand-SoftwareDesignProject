@@ -33,6 +33,7 @@ public class Warrior extends Hero {
     }
 
     // set the second class they picked
+    @Override
     public void triggerHybridWith(String secondaryClass) {
         if (isHybrid()) return;
         if (primaryClassLevel >= 5 && secondaryClassLevel >= 5) {
@@ -82,6 +83,7 @@ public class Warrior extends Hero {
             System.out.println(name + " heals from righteous fury!");
         }
     }
+
     @Override
     public String[] getSpells() {return new String[] {"Berserker Attack"};}
 }

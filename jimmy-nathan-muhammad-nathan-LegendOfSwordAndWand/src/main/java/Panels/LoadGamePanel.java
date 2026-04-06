@@ -1,14 +1,26 @@
 package Panels;
 
-import Factory.HeroFactory;
-import Hero.*;
-import Singleton.DatabaseManager;
-
-import javax.swing.*;
-import java.awt.*;
-import java.sql.*;
+import java.awt.BorderLayout;
+import java.awt.CardLayout;
+import java.awt.Color;
+import java.awt.Container;
+import java.awt.FlowLayout;
+import java.awt.Font;
+import java.awt.GridLayout;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+
+import javax.swing.BorderFactory;
+import javax.swing.JButton;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.SwingConstants;
+
+import Factory.HeroFactory;
+import Hero.Hero;
+import Singleton.DatabaseManager;
 
 
 // refactor 3
@@ -135,11 +147,17 @@ public class LoadGamePanel extends JPanel {
         }
     }
 
+    // Refactor 10 - Inappropriate Intimacy
+    // Isolated HeroFactory call into a helper method to reduce coupling
+    private Hero createHeroFromClass(String className, String name) {
+        return HeroFactory.getFactory(className).createHero(name);
+    }
+
     private Hero mapResultSetToHero(ResultSet rs) throws SQLException {
         String name = rs.getString("hero_name");
         String className = rs.getString("hero_class");
 
-        Hero hero = HeroFactory.getFactory(className).createHero(name);
+        Hero hero = createHeroFromClass(className, name);
         hero.setLevel(rs.getInt("level"));
         hero.setMaxHp(rs.getDouble("max_hp"));
         hero.changeHp(rs.getDouble("hp"));

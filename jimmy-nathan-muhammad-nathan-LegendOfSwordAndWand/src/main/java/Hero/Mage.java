@@ -30,6 +30,7 @@ public class Mage extends Hero {
         }
     }
 
+    @Override
     public void triggerHybridWith(String secondaryClass) {
         if (isHybrid()) return;
         if (primaryClassLevel >= 5 && secondaryClassLevel >= 5) {
@@ -73,6 +74,6 @@ public class Mage extends Hero {
             System.out.println(name + " drains " + drain + " mana from " + target.getName() + "!");
         }
     }
-    @Override
+
     public String[] getSpells() {return new String[] {"Replenish"};}
 }

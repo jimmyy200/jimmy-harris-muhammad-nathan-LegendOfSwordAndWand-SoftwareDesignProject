@@ -1,13 +1,24 @@
 package Panels;
 
-import Factory.HeroFactory;
-import Hero.*;
-import Singleton.DatabaseManager;
-
-import javax.swing.*;
-import java.awt.*;
+import java.awt.BorderLayout;
+import java.awt.CardLayout;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.awt.Font;
+import java.awt.GridLayout;
 import java.util.ArrayList;
 import java.util.List;
+
+import javax.swing.BorderFactory;
+import javax.swing.JButton;
+import javax.swing.JLabel;
+import javax.swing.JOptionPane;
+import javax.swing.JPanel;
+import javax.swing.SwingConstants;
+
+import Factory.HeroFactory;
+import Hero.Hero;
+import Singleton.DatabaseManager;
 
 public class ClassSelectPanel extends JPanel {
     private static final String[] CLASSES      = {"Warrior", "Mage", "Order", "Chaos"};
@@ -86,15 +97,11 @@ public class ClassSelectPanel extends JPanel {
                 JOptionPane.showMessageDialog(this, "Pick at least 1 hero!", "No Heroes", JOptionPane.WARNING_MESSAGE);
                 return;
             }
-            DatabaseManager.getInstance().auth.saveClass(currentUser[0], selectedClasses.get(0));
-            DatabaseManager.getInstance().save.saveGame(currentUser[0]);
+            // Refactor 10 - Inappropriate Intimacy
+            // Extracted DB and factory calls into helper methods to reduce coupling
+            saveNewGameData(currentUser[0], selectedClasses.get(0));
+            List<Hero> party = buildStartingParty(selectedClasses, currentUser[0]);
 
-            // Build party list and pass to GamePanel
-            List<Hero> party = new ArrayList<>();
-            for (int i = 0; i < selectedClasses.size(); i++) {
-                String heroName = currentUser[0] + (i == 0 ? "" : "-" + (i + 1));
-                party.add(createHero(selectedClasses.get(i), heroName));
-            }
             gamePanel.startNewGame(party);
             selectedClasses.clear();
             refreshPartyLabel();
@@ -114,6 +121,24 @@ public class ClassSelectPanel extends JPanel {
         } else {
             partyLabel.setText("Party (" + selectedClasses.size() + "/5): " + String.join(", ", selectedClasses));
         }
+    }
+
+    // Refactor 10 - Inappropriate Intimacy
+    // Isolated DatabaseManager calls into a single helper method
+    private void saveNewGameData(String username, String heroClass) {
+        DatabaseManager.getInstance().auth.saveClass(username, heroClass);
+        DatabaseManager.getInstance().save.saveGame(username);
+    }
+
+    // Refactor 10 - Inappropriate Intimacy
+    // Isolated HeroFactory calls into a single helper method
+    private List<Hero> buildStartingParty(List<String> classes, String username) {
+        List<Hero> party = new ArrayList<>();
+        for (int i = 0; i < classes.size(); i++) {
+            String heroName = username + (i == 0 ? "" : "-" + (i + 1));
+            party.add(createHero(classes.get(i), heroName));
+        }
+        return party;
     }
 
     private Hero createHero(String heroClass, String heroName) {
